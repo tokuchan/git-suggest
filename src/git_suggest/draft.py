@@ -8,12 +8,15 @@ validate the response.
 from __future__ import annotations
 
 import json
+import logging
 from collections.abc import Callable
 from pathlib import Path
 
 from git_suggest.config import Config
 from git_suggest.model import DraftDocument
 from git_suggest.scan import run_git
+
+logger = logging.getLogger(__name__)
 
 
 def find_readme(cwd: Path | None = None) -> str:
@@ -35,14 +38,18 @@ def recent_log(count: int, cwd: Path | None = None) -> str:
 
 def gather_context(config: Config, cwd: Path | None = None) -> str:
     """Compose the configured repo-context sections into one text block."""
+    logger.info("Gathering project context for the AI backend")
     sections = []
     if config.context_include_file_listing:
+        logger.debug("Including tracked-file listing in context")
         sections.append(f"# Tracked files\n{list_files(cwd=cwd)}")
     if config.context_include_readme:
         readme = find_readme(cwd=cwd)
         if readme:
+            logger.debug("Including README in context")
             sections.append(f"# README\n{readme}")
     if config.context_log_line_count > 0:
+        logger.debug("Including %d recent commit(s) in context", config.context_log_line_count)
         sections.append(f"# Recent commits\n{recent_log(config.context_log_line_count, cwd=cwd)}")
     return "\n\n".join(sections)
 
@@ -70,7 +77,10 @@ def extract_json_object(text: str) -> str:
 
 def parse_draft_response(raw: str) -> DraftDocument:
     """Parse and validate an AI backend's raw response into a DraftDocument."""
-    return DraftDocument.model_validate(json.loads(extract_json_object(raw)))
+    logger.info("Validating AI backend response into a draft document")
+    doc = DraftDocument.model_validate(json.loads(extract_json_object(raw)))
+    logger.debug("Draft document type=%s scope=%r", doc.type, doc.scope)
+    return doc
 
 
 def run_draft(
@@ -82,4 +92,5 @@ def run_draft(
     """Build the prompt, call the backend runner, and return the parsed DraftDocument."""
     context = gather_context(config, cwd=cwd)
     prompt = build_prompt(scan_report, context)
+    logger.info("Requesting draft document from AI backend")
     return parse_draft_response(runner(prompt))

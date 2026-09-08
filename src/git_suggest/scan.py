@@ -6,8 +6,11 @@ filename only. Small functions compose to build the report.
 
 from __future__ import annotations
 
+import logging
 import subprocess
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def run_git(*args: str, cwd: Path | None = None) -> str:
@@ -56,6 +59,7 @@ def format_text_entry(path: str, cwd: Path | None = None) -> str:
 
 def format_entry(path: str, is_binary: bool, cwd: Path | None = None) -> str:
     """Render one staged file as a report entry, dispatching on binary/text."""
+    logger.debug("Formatting scan entry for %s (binary=%s)", path, is_binary)
     if is_binary:
         return format_binary_entry(path)
     return format_text_entry(path, cwd=cwd)
@@ -63,5 +67,8 @@ def format_entry(path: str, is_binary: bool, cwd: Path | None = None) -> str:
 
 def build_scan_report(cwd: Path | None = None) -> str:
     """Build the full scan report text for all currently staged changes."""
-    entries = [format_entry(path, is_binary, cwd=cwd) for path, is_binary in staged_files(cwd=cwd)]
+    logger.info("Scanning staged changes (git diff --cached)")
+    files = staged_files(cwd=cwd)
+    logger.info("Found %d staged file(s)", len(files))
+    entries = [format_entry(path, is_binary, cwd=cwd) for path, is_binary in files]
     return "\n\n".join(entries)

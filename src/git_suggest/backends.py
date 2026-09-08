@@ -7,11 +7,14 @@ object.
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 from collections.abc import Callable
 
 from git_suggest.config import Config
+
+logger = logging.getLogger(__name__)
 
 
 def is_available(command: str) -> bool:
@@ -21,7 +24,14 @@ def is_available(command: str) -> bool:
 
 def resolve_backend(order: tuple[str, ...], commands: dict[str, str]) -> str | None:
     """Return the first backend name in order whose command is available on PATH."""
-    return next((name for name in order if is_available(commands.get(name, name))), None)
+    for name in order:
+        command = commands.get(name, name)
+        logger.debug("Checking AI backend %r (command=%r)", name, command)
+        if is_available(command):
+            logger.info("Using AI backend: %s", name)
+            return name
+    logger.warning("No configured AI backend found on PATH (tried: %s)", ", ".join(order))
+    return None
 
 
 def print_flag_args(command: str, prompt: str) -> list[str]:
@@ -48,9 +58,11 @@ def invoke_backend(name: str, command: str) -> Callable[[str], str]:
 
     def run(prompt: str) -> str:
         """Invoke the backend with prompt and return its stdout."""
+        logger.info("Sending prompt to backend %r (%d chars)", name, len(prompt))
         result = subprocess.run(
             build_args(command, prompt), capture_output=True, text=True, check=True
         )
+        logger.info("Received response from backend %r (%d chars)", name, len(result.stdout))
         return result.stdout
 
     return run

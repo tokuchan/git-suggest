@@ -6,7 +6,11 @@ per non-empty category, and the full message or changelog-only fragment.
 
 from __future__ import annotations
 
+import logging
+
 from git_suggest.model import ChangelogEntry, ChangelogSections, DraftDocument, sections_of
+
+logger = logging.getLogger(__name__)
 
 
 def format_header(doc: DraftDocument) -> str:
@@ -30,12 +34,16 @@ def format_section(name: str, entries: list[ChangelogEntry]) -> str | None:
 
 def format_changelog_body(changelog: ChangelogSections) -> str:
     """Render every non-empty changelog category, in canonical order."""
+    logger.debug("Rendering changelog body")
     sections = [format_section(name, entries) for name, entries in sections_of(changelog)]
-    return "\n\n".join(section for section in sections if section is not None)
+    non_empty = [section for section in sections if section is not None]
+    logger.debug("Rendered %d non-empty changelog section(s)", len(non_empty))
+    return "\n\n".join(non_empty)
 
 
 def render_commit_message(doc: DraftDocument) -> str:
     """Render the full conventional-commit message: header + changelog body."""
+    logger.info("Rendering commit message")
     header = format_header(doc)
     body = format_changelog_body(doc.changelog)
     return f"{header}\n\n{body}" if body else header
@@ -43,4 +51,5 @@ def render_commit_message(doc: DraftDocument) -> str:
 
 def render_changelog_only(doc: DraftDocument) -> str:
     """Render just the Keep a Changelog body fragment, without the commit header."""
+    logger.info("Rendering changelog-only body")
     return format_changelog_body(doc.changelog)
