@@ -27,7 +27,7 @@ Running `git-suggest` with no subcommand does exactly that chain for you.
 ## Install
 
 ```sh
-uv tool install git+https://github.com/<you>/git-suggest
+uv tool install git+https://github.com/tokuchan/git-suggest
 ```
 
 ## Usage
