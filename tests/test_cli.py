@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from git_suggest.cli import commit_with_message, main
+from git_suggest.cli import commit_with_message, main, spinner_or_null
 from git_suggest.model import ChangelogSections, CommitType, DraftDocument
 
 
@@ -130,3 +130,37 @@ def test_bare_command_commit_flag_invokes_git_commit(
     assert result.exit_code == 0
     assert captured["edit"] is False
     assert captured["message"] == "feat(cli): wire up subcommands"
+
+
+def test_spinner_or_null_returns_nullcontext_when_not_shown(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """spinner_or_null returns a no-op context manager when the spinner shouldn't show."""
+    monkeypatch.setattr("git_suggest.cli.should_show_spinner", lambda is_tty, level: False)
+    from rich.console import Console
+
+    with spinner_or_null(Console(), "working...") as status:
+        assert status is None
+
+
+def test_spinner_or_null_returns_status_when_shown(monkeypatch: pytest.MonkeyPatch) -> None:
+    """spinner_or_null returns a real rich Status when the spinner should show."""
+    monkeypatch.setattr("git_suggest.cli.should_show_spinner", lambda is_tty, level: True)
+    from rich.console import Console
+    from rich.status import Status
+
+    with spinner_or_null(Console(), "working...") as status:
+        assert isinstance(status, Status)
+
+
+def test_bare_command_uses_spinner_when_forced_on(
+    staged_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When should_show_spinner is forced True, the chain still produces the right message."""
+    monkeypatch.setattr("git_suggest.cli.should_show_spinner", lambda is_tty, level: True)
+    monkeypatch.setattr(
+        "git_suggest.cli.require_backend_runner", lambda config: lambda prompt: _sample_draft_json()
+    )
+    result = CliRunner().invoke(main, [])
+    assert result.exit_code == 0
+    assert "feat(cli): wire up subcommands" in result.output
