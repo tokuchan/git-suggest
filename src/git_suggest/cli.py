@@ -46,6 +46,9 @@ overridable there):
 """
 
 
+_NO_STAGED_CHANGES_MESSAGE = "No staged changes found; stage something first (`git add`)."
+
+
 def read_input(input_path: Path | None) -> str:
     """Read text from --input FILE, or stdin otherwise."""
     return input_path.read_text() if input_path else sys.stdin.read()
@@ -85,11 +88,17 @@ def spinner_or_null(console: Console, message: str) -> Status | nullcontext:
     return console.status(message) if show_spinner else nullcontext()
 
 
-def chain_scan_draft_render(config: Config) -> str:
-    """Run scan -> draft -> render in-process, showing spinner progress, and return the message."""
+def chain_scan_draft_render(config: Config) -> str | None:
+    """Run scan -> draft -> render in-process, showing spinner progress.
+
+    Returns None (without ever calling the AI backend) when there are no
+    staged changes to describe.
+    """
     console = Console()
     with spinner_or_null(console, "Scanning staged changes...") as status:
         scan_report = build_scan_report()
+        if not scan_report.strip():
+            return None
         if status:
             status.update("Drafting commit message via AI backend...")
         doc = draft_document_from_scan(scan_report, config)
@@ -146,6 +155,9 @@ def main(ctx: click.Context, edit: bool, do_commit: bool, verbose: int, quiet: i
         return
     config = get_config()
     message = chain_scan_draft_render(config)
+    if message is None:
+        click.echo(_NO_STAGED_CHANGES_MESSAGE, err=True)
+        return
     if edit or do_commit:
         commit_with_message(message, edit=edit)
     else:
@@ -166,6 +178,9 @@ def draft_command(input_path: Path | None, output_path: Path | None) -> None:
     """Turn a scan report (stdin, or --input) into a structured draft JSON document."""
     config = get_config()
     scan_report = read_input(input_path)
+    if not scan_report.strip():
+        click.echo(_NO_STAGED_CHANGES_MESSAGE, err=True)
+        return
     console = Console()
     with spinner_or_null(console, "Drafting commit message via AI backend..."):
         doc = draft_document_from_scan(scan_report, config)

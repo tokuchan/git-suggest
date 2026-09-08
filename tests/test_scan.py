@@ -8,6 +8,7 @@ import pytest
 from git_suggest.scan import (
     build_scan_report,
     format_binary_entry,
+    has_staged_changes,
     parse_numstat_line,
     staged_files,
 )
@@ -67,3 +68,20 @@ def test_build_scan_report_omits_binary_content(repo: Path) -> None:
     (repo / "blob.bin").write_bytes(b"\x00\x01\x02\x03")
     _git(repo, "add", "blob.bin")
     assert build_scan_report(cwd=repo) == format_binary_entry("blob.bin")
+
+
+def test_has_staged_changes_false_with_nothing_staged(repo: Path) -> None:
+    """has_staged_changes is False right after a clean commit."""
+    assert has_staged_changes(cwd=repo) is False
+
+
+def test_has_staged_changes_true_with_a_staged_change(repo: Path) -> None:
+    """has_staged_changes is True once a change is staged."""
+    (repo / "existing.txt").write_text("line one\nline two\n")
+    _git(repo, "add", "existing.txt")
+    assert has_staged_changes(cwd=repo) is True
+
+
+def test_build_scan_report_is_empty_with_nothing_staged(repo: Path) -> None:
+    """build_scan_report short-circuits to an empty string with nothing staged."""
+    assert build_scan_report(cwd=repo) == ""

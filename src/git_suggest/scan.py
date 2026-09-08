@@ -25,6 +25,17 @@ def run_git(*args: str, cwd: Path | None = None) -> str:
     return result.stdout
 
 
+def has_staged_changes(cwd: Path | None = None) -> bool:
+    """Cheaply check for any staged change via `git diff --cached --quiet`.
+
+    This runs before anything else in `build_scan_report` so an empty
+    changeset is detected immediately, letting callers skip the (slow) AI
+    backend round trip entirely instead of drafting from nothing.
+    """
+    result = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=cwd, capture_output=True)
+    return result.returncode != 0
+
+
 def staged_numstat(cwd: Path | None = None) -> str:
     """Return raw `git diff --cached --numstat` output."""
     return run_git("diff", "--cached", "--numstat", cwd=cwd)
@@ -68,6 +79,9 @@ def format_entry(path: str, is_binary: bool, cwd: Path | None = None) -> str:
 def build_scan_report(cwd: Path | None = None) -> str:
     """Build the full scan report text for all currently staged changes."""
     logger.info("Scanning staged changes (git diff --cached)")
+    if not has_staged_changes(cwd=cwd):
+        logger.info("No staged changes found")
+        return ""
     files = staged_files(cwd=cwd)
     logger.info("Found %d staged file(s)", len(files))
     entries = [format_entry(path, is_binary, cwd=cwd) for path, is_binary in files]

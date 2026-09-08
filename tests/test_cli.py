@@ -164,3 +164,43 @@ def test_bare_command_uses_spinner_when_forced_on(
     result = CliRunner().invoke(main, [])
     assert result.exit_code == 0
     assert "feat(cli): wire up subcommands" in result.output
+
+
+def test_bare_command_short_circuits_with_no_staged_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bare `git-suggest` exits without calling the backend when nothing is staged."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    (tmp_path / "a.txt").write_text("hello\n")
+    _git(tmp_path, "add", "a.txt")
+    _git(tmp_path, "commit", "-q", "-m", "initial")
+    monkeypatch.chdir(tmp_path)
+
+    called = {"backend": False}
+
+    def fake_require_backend_runner(config: object) -> object:
+        called["backend"] = True
+        raise AssertionError("backend should not be invoked with nothing staged")
+
+    monkeypatch.setattr("git_suggest.cli.require_backend_runner", fake_require_backend_runner)
+    result = CliRunner().invoke(main, [])
+    assert result.exit_code == 0
+    assert called["backend"] is False
+    assert "No staged changes" in result.output
+
+
+def test_draft_command_short_circuits_with_empty_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`git-suggest draft` exits without calling the backend when stdin is empty."""
+    called = {"backend": False}
+
+    def fake_require_backend_runner(config: object) -> object:
+        called["backend"] = True
+        raise AssertionError("backend should not be invoked with empty input")
+
+    monkeypatch.setattr("git_suggest.cli.require_backend_runner", fake_require_backend_runner)
+    result = CliRunner().invoke(main, ["draft"], input="   \n")
+    assert result.exit_code == 0
+    assert called["backend"] is False
+    assert "No staged changes" in result.output
