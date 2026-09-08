@@ -1,0 +1,42 @@
+[project]
+name = "git-suggest"
+version = "0.1.0"
+description = "Draft conventional-commit messages with a Keep a Changelog body from staged git changes, via an AI backend."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+    "rich>=13.7",
+    "pydantic>=2.7",
+]
+
+[project.scripts]
+git-suggest = "git_suggest.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/git_suggest"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["git_suggest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
