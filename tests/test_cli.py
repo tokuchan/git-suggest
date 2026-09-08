@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from git_suggest.cli import commit_with_message, main, spinner_or_null
+from git_suggest.cli import commit_with_message, main
 from git_suggest.model import ChangelogSections, CommitType, DraftDocument
 
 
@@ -52,7 +52,7 @@ def test_render_command_prints_commit_message() -> None:
     """`git-suggest render` turns draft JSON on stdin into a commit message."""
     result = CliRunner().invoke(main, ["render"], input=_sample_draft_json())
     assert result.exit_code == 0
-    assert result.output.strip() == "feat(cli): wire up subcommands"
+    assert result.stdout.strip() == "feat(cli): wire up subcommands"
 
 
 def test_render_command_changelog_only(staged_repo: Path) -> None:
@@ -83,7 +83,7 @@ def test_draft_command_uses_backend_runner(monkeypatch: pytest.MonkeyPatch) -> N
     )
     result = CliRunner().invoke(main, ["draft"], input="## a.py\n+x")
     assert result.exit_code == 0
-    parsed = json.loads(result.output)
+    parsed = json.loads(result.stdout)
     assert parsed["type"] == "feat"
 
 
@@ -95,7 +95,7 @@ def test_bare_command_prints_message_by_default(monkeypatch: pytest.MonkeyPatch)
     )
     result = CliRunner().invoke(main, [])
     assert result.exit_code == 0
-    assert result.output.strip() == "feat(cli): wire up subcommands"
+    assert result.stdout.strip() == "feat(cli): wire up subcommands"
 
 
 def test_commit_with_message_builds_expected_args(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,36 +132,29 @@ def test_bare_command_commit_flag_invokes_git_commit(
     assert captured["message"] == "feat(cli): wire up subcommands"
 
 
-def test_spinner_or_null_returns_nullcontext_when_not_shown(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """spinner_or_null returns a no-op context manager when the spinner shouldn't show."""
-    monkeypatch.setattr("git_suggest.cli.should_show_spinner", lambda is_tty, level: False)
-    from rich.console import Console
-
-    with spinner_or_null(Console(), "working...") as status:
-        assert status is None
-
-
-def test_spinner_or_null_returns_status_when_shown(monkeypatch: pytest.MonkeyPatch) -> None:
-    """spinner_or_null returns a real rich Status when the spinner should show."""
-    monkeypatch.setattr("git_suggest.cli.should_show_spinner", lambda is_tty, level: True)
-    from rich.console import Console
-    from rich.status import Status
-
-    with spinner_or_null(Console(), "working...") as status:
-        assert isinstance(status, Status)
-
-
 def test_bare_command_uses_spinner_when_forced_on(
     staged_repo: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """When should_show_spinner is forced True, the chain still produces the right message."""
-    monkeypatch.setattr("git_suggest.cli.should_show_spinner", lambda is_tty, level: True)
+    """When select_output_mode is forced to spinner mode, the chain still works."""
+    monkeypatch.setattr(
+        "git_suggest.cli.select_output_mode", lambda is_tty, want_log, level: "spinner"
+    )
     monkeypatch.setattr(
         "git_suggest.cli.require_backend_runner", lambda config: lambda prompt: _sample_draft_json()
     )
     result = CliRunner().invoke(main, [])
+    assert result.exit_code == 0
+    assert "feat(cli): wire up subcommands" in result.output
+
+
+def test_bare_command_uses_log_mode_when_requested(
+    staged_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--log forces log mode, and the chain still produces the right message."""
+    monkeypatch.setattr(
+        "git_suggest.cli.require_backend_runner", lambda config: lambda prompt: _sample_draft_json()
+    )
+    result = CliRunner().invoke(main, ["--log"])
     assert result.exit_code == 0
     assert "feat(cli): wire up subcommands" in result.output
 
