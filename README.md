@@ -43,6 +43,20 @@ Because the default (no flags) prints plain text to stdout, `git-suggest`
 also works as a custom command inside [lazygit](https://github.com/jesseduffield/lazygit)
 to populate a commit message suggestion.
 
+## Output and logging
+
+Progress (entering/leaving scan/draft/render, git calls, the AI round trip)
+is reported via Python logging, always written to stderr so stdout stays
+pipe-clean. By default, on a real terminal, this drives a spinner's text
+instead of printing log lines; add `--log` to force log lines instead, which
+also happens automatically when stdout isn't a terminal or when `-v`/`-q`
+moves verbosity away from the default `INFO` level.
+
+- `-v` / `-q` (repeatable, e.g. `-vv`, and `-vq` cancels): raise/lower the
+  log level (`INFO` by default, up to `DEBUG`, down to `CRITICAL`).
+- `--log`: print log lines instead of a spinner, even on a TTY at the
+  default level.
+
 ## AI backend
 
 `draft` shells out to the first of these found on `PATH`, in order:
