@@ -8,11 +8,15 @@ import pytest
 
 from git_suggest.config import Config
 from git_suggest.draft import (
+    build_length_retry_prompt,
     build_prompt,
+    enforce_subject_length,
     extract_json_object,
     find_readme,
     gather_context,
     parse_draft_response,
+    parse_length_retry_response,
+    parse_subject_budget,
     run_draft,
 )
 from git_suggest.model import CommitType, DraftDocument
@@ -122,3 +126,78 @@ def test_run_draft_composes_context_prompt_and_runner(repo: Path) -> None:
     assert isinstance(doc, DraftDocument)
     assert doc.type == CommitType.FIX
     assert "## existing.txt" in captured_prompts[0]
+
+
+def test_parse_subject_budget_reads_embedded_line() -> None:
+    """parse_subject_budget extracts max/preferred from scan's leading budget line."""
+    scan_report = "# subject-budget: max=60 preferred=38\n\n## file.py\n+x"
+    assert parse_subject_budget(scan_report, Config()) == (60, 38)
+
+
+def test_parse_subject_budget_falls_back_to_config_defaults() -> None:
+    """Without a budget line, parse_subject_budget falls back to config defaults."""
+    assert parse_subject_budget("## file.py\n+x", Config()) == (72, 50)
+
+
+def test_build_prompt_includes_budget_instructions() -> None:
+    """build_prompt tells the AI the max/preferred subject-length budget."""
+    prompt = build_prompt("## file.py\n+x", "context", max_len=60, preferred_len=38)
+    assert "60 characters" in prompt
+    assert "38 characters" in prompt
+
+
+def test_build_length_retry_prompt_reports_actual_and_target_lengths() -> None:
+    """The retry prompt states the current header, its length, and both budgets."""
+    doc = DraftDocument(type=CommitType.FEAT, scope="cli", description="a very long description")
+    prompt = build_length_retry_prompt(doc, max_len=20, preferred_len=10)
+    assert "feat(cli): a very long description" in prompt
+    assert "20-character" in prompt
+    assert '"description"' in prompt
+
+
+def test_parse_length_retry_response_extracts_description() -> None:
+    """parse_length_retry_response pulls the description field out of the reply."""
+    assert parse_length_retry_response('{"description": "shorter"}') == "shorter"
+
+
+def test_enforce_subject_length_returns_doc_unchanged_when_already_within_budget() -> None:
+    """No retry happens if the initial subject already fits."""
+    doc = DraftDocument(type=CommitType.FIX, description="fix bug")
+
+    def fail_runner(prompt: str) -> str:
+        raise AssertionError("runner should not be called when already within budget")
+
+    result = enforce_subject_length(doc, fail_runner, max_len=72, preferred_len=50, attempts=3)
+    assert result is doc
+
+
+def test_enforce_subject_length_retries_until_it_fits() -> None:
+    """A too-long description is retried until a shorter one fits."""
+    doc = DraftDocument(type=CommitType.FEAT, description="x" * 60)
+    responses = iter(
+        ['{"description": "still too long xxxxxxxxxxxxxxxxxxxx"}', '{"description": "short"}']
+    )
+
+    def runner(prompt: str) -> str:
+        return next(responses)
+
+    result = enforce_subject_length(doc, runner, max_len=20, preferred_len=10, attempts=3)
+    assert result.description == "short"
+
+
+def test_enforce_subject_length_falls_back_to_shortest_after_exhausting_attempts() -> None:
+    """After exhausting attempts, the shortest attempt is used and a warning logged."""
+    doc = DraftDocument(type=CommitType.FEAT, description="x" * 60)
+    responses = iter(
+        [
+            '{"description": "aaaaaaaaaaaaaaaaaaaa"}',
+            '{"description": "bbbbbbbbbb"}',
+            '{"description": "ccccccccccccccccccccccccccc"}',
+        ]
+    )
+
+    def runner(prompt: str) -> str:
+        return next(responses)
+
+    result = enforce_subject_length(doc, runner, max_len=5, preferred_len=1, attempts=3)
+    assert result.description == "bbbbbbbbbb"
