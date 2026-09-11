@@ -119,6 +119,22 @@ def test_render_command_prints_commit_message() -> None:
     assert result.stdout.strip() == "feat(cli): wire up subcommands"
 
 
+def test_render_command_reference_prefixes_the_header() -> None:
+    """`git-suggest render -r AMCC-12202` prefixes the subject line."""
+    result = CliRunner().invoke(main, ["render", "-r", "AMCC-12202"], input=_sample_draft_json())
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "AMCC-12202: feat(cli): wire up subcommands"
+
+
+def test_render_command_reference_and_branch_reference_conflict() -> None:
+    """Passing both -r and -b to render is a hard error."""
+    result = CliRunner().invoke(
+        main, ["render", "-r", "AMCC-12202", "-b"], input=_sample_draft_json()
+    )
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
 def test_render_command_changelog_only(staged_repo: Path) -> None:
     """`git-suggest render --changelog-only` omits the commit header."""
     doc = DraftDocument(
@@ -153,7 +169,7 @@ def test_draft_command_uses_backend_runner(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_bare_command_prints_message_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bare `git-suggest` chains scan/draft/render and prints plain text (piped)."""
-    monkeypatch.setattr("git_suggest.cli.build_scan_report", lambda: "## a.py\n+x")
+    monkeypatch.setattr("git_suggest.cli.build_scan_report", lambda **kwargs: "## a.py\n+x")
     monkeypatch.setattr(
         "git_suggest.cli.require_backend_runner", lambda config: lambda prompt: _sample_draft_json()
     )

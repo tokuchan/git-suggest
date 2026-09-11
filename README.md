@@ -38,11 +38,33 @@ git add -p                 # stage what you want to commit
 git-suggest                # print a suggested commit message to stdout
 git-suggest --edit          # ...then open it in `git commit -e -F -`
 git-suggest --commit        # ...or commit it non-interactively
+git-suggest -o out.txt      # ...or write it to a file (-a to append)
+git-suggest -r AMCC-12202   # ...prefixed with "AMCC-12202: "
+git-suggest -b              # ...prefixed with the current branch name
 ```
 
 Because the default (no flags) prints plain text to stdout, `git-suggest`
 also works as a custom command inside [lazygit](https://github.com/jesseduffield/lazygit)
 to populate a commit message suggestion.
+
+## Reference prefixes
+
+`-r/--reference REF` prefixes the rendered subject with `"REF: "`, ahead of
+the conventional-commit `type(scope): ` segment — handy for ticket IDs.
+`-b/--branch-reference` does the same using the current branch name
+verbatim. The two are mutually exclusive. Both are also accepted by `scan`
+and `render` (`scan` uses them only to size the subject-length budget it
+hands to `draft`; `render` is where the literal prefix text is applied).
+
+## Subject and body length
+
+The rendered subject line (reference prefix + `type(scope): description`)
+targets 72 characters as a hard cap, and 50 as a preferred cap, matching
+conventional git commit-message style. `draft` asks the AI backend for
+this directly and retries with a shorter `description` (up to 3 times) if
+the response comes back too long, falling back to the shortest attempt
+with a logged warning rather than failing outright. Changelog body bullets
+wrap at 72 columns with a hanging indent under the bullet's text.
 
 ## Output and logging
 
@@ -74,6 +96,10 @@ backend_order = ["copilot", "claude", "opencode"]
 context_log_line_count = 50
 context_include_readme = true
 output_style = "auto"  # auto | always | never
+subject_max_length = 72
+subject_preferred_length = 50
+subject_retry_attempts = 3
+body_wrap_width = 72
 ```
 
 ## Development

@@ -140,15 +140,17 @@ def draft_document_from_scan(scan_report: str, config: Config) -> DraftDocument:
     return run_draft(scan_report, require_backend_runner(config), config)
 
 
-def chain_scan_draft_render(config: Config) -> str | None:
+def chain_scan_draft_render(config: Config, reference: str | None = None) -> str | None:
     """Run scan -> draft -> render in-process, and return the rendered message.
 
     Returns None (without ever calling the AI backend) when there are no
     staged changes to describe. Progress is reported purely via logging,
     which log_output_context turns into either log lines or spinner text.
+    `reference` (from -r/-b) sizes scan's subject-budget hint and is
+    stitched onto the final header by render.
     """
     logger.info("Entering scan")
-    scan_report = build_scan_report()
+    scan_report = build_scan_report(reference=reference)
     logger.info("Leaving scan")
     if not scan_report.strip():
         return None
@@ -156,7 +158,7 @@ def chain_scan_draft_render(config: Config) -> str | None:
     doc = draft_document_from_scan(scan_report, config)
     logger.info("Leaving draft")
     logger.info("Entering render")
-    message = render_commit_message(doc)
+    message = render_commit_message(doc, reference=reference, width=config.body_wrap_width)
     logger.info("Leaving render")
     return message
 
@@ -183,6 +185,8 @@ def commit_with_message(message: str, edit: bool) -> None:
 )
 @_OUTPUT_OPTION
 @_APPEND_OPTION
+@_REFERENCE_OPTION
+@_BRANCH_REFERENCE_OPTION
 @click.option("-v", "--verbose", count=True, help="Increase log verbosity (repeatable: -v, -vv).")
 @click.option(
     "-q", "--quiet", count=True, help="Decrease log verbosity (repeatable: -q, -qq); cancels -v."
@@ -197,6 +201,8 @@ def main(
     do_commit: bool,
     output_path: Path | None,
     append: bool,
+    reference: str | None,
+    branch_reference: bool,
     verbose: int,
     quiet: int,
     want_log: bool,
@@ -215,7 +221,9 @@ def main(
     as a custom command inside tools like lazygit. Pass --edit to open it in
     `git commit -e -F -`, or --commit to commit it non-interactively. Pass
     -o/--output-path to write it to a file instead (use '-', or omit, for
-    stdout); -a/--append appends rather than truncates.
+    stdout); -a/--append appends rather than truncates. Pass -r/--reference
+    (or -b/--branch-reference for the current branch name) to prefix the
+    subject with "<reference>: ".
 
     Each of scan/draft/render can also be run and composed on its own, e.g.
     `git-suggest scan | git-suggest draft | git-suggest render`.
@@ -227,8 +235,9 @@ def main(
     if ctx.invoked_subcommand is not None:
         return
     config = get_config()
+    resolved_reference = resolve_reference(reference, branch_reference)
     with log_output_context(mode):
-        message = chain_scan_draft_render(config)
+        message = chain_scan_draft_render(config, reference=resolved_reference)
     if message is None:
         click.echo(_NO_STAGED_CHANGES_MESSAGE, err=True)
         return
@@ -287,6 +296,8 @@ def draft_command(
 @_INPUT_OPTION
 @_OUTPUT_OPTION
 @_APPEND_OPTION
+@_REFERENCE_OPTION
+@_BRANCH_REFERENCE_OPTION
 @click.option("--changelog-only", is_flag=True, help="Render only the Keep a Changelog body.")
 @click.pass_obj
 def render_command(
@@ -294,10 +305,24 @@ def render_command(
     input_path: Path | None,
     output_path: Path | None,
     append: bool,
+    reference: str | None,
+    branch_reference: bool,
     changelog_only: bool,
 ) -> None:
-    """Render a draft JSON document (stdin, or --input) into a commit message."""
+    """Render a draft JSON document (stdin, or --input) into a commit message.
+
+    -r/--reference and -b/--branch-reference prefix the subject with
+    "<reference>: "; they have no effect with --changelog-only, since that
+    output has no subject line.
+    """
+    config = get_config()
+    resolved_reference = resolve_reference(reference, branch_reference)
     doc = DraftDocument.model_validate_json(read_input(input_path))
     with log_output_context(mode):
-        text = render_changelog_only(doc) if changelog_only else render_commit_message(doc)
+        if changelog_only:
+            text = render_changelog_only(doc, width=config.body_wrap_width)
+        else:
+            text = render_commit_message(
+                doc, reference=resolved_reference, width=config.body_wrap_width
+            )
     write_output(text, output_path, append)
