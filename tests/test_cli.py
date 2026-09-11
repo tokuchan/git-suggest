@@ -48,6 +48,47 @@ def test_scan_command_reports_staged_diff(staged_repo: Path) -> None:
     assert "+line two" in result.output
 
 
+def test_scan_command_writes_to_output_path(staged_repo: Path) -> None:
+    """`-o/--output-path` writes the report to a file instead of stdout."""
+    out_file = staged_repo / "out.txt"
+    result = CliRunner().invoke(main, ["scan", "-o", str(out_file)])
+    assert result.exit_code == 0
+    assert "existing.txt" not in result.output
+    assert "existing.txt" in out_file.read_text()
+
+
+def test_scan_command_output_path_dash_means_stdout(staged_repo: Path) -> None:
+    """Passing '-' to --output-path prints to stdout, same as omitting the flag."""
+    result = CliRunner().invoke(main, ["scan", "--output-path", "-"])
+    assert result.exit_code == 0
+    assert "existing.txt" in result.output
+
+
+def test_scan_command_append_adds_to_existing_file(staged_repo: Path) -> None:
+    """-a/--append appends to the target file instead of truncating it."""
+    out_file = staged_repo / "out.txt"
+    out_file.write_text("PRIOR\n")
+    result = CliRunner().invoke(main, ["scan", "-o", str(out_file), "-a"])
+    assert result.exit_code == 0
+    content = out_file.read_text()
+    assert content.startswith("PRIOR\n")
+    assert "existing.txt" in content
+
+
+def test_scan_command_append_without_output_path_is_ignored(staged_repo: Path) -> None:
+    """-a/--append with no --output-path (stdout target) is silently ignored, not an error."""
+    result = CliRunner().invoke(main, ["scan", "-a"])
+    assert result.exit_code == 0
+    assert "existing.txt" in result.output
+
+
+def test_render_command_input_dash_means_stdin() -> None:
+    """Passing '-' to --input reads from stdin explicitly, same as omitting the flag."""
+    result = CliRunner().invoke(main, ["render", "--input", "-"], input=_sample_draft_json())
+    assert result.exit_code == 0
+    assert result.stdout.strip() == "feat(cli): wire up subcommands"
+
+
 def test_render_command_prints_commit_message() -> None:
     """`git-suggest render` turns draft JSON on stdin into a commit message."""
     result = CliRunner().invoke(main, ["render"], input=_sample_draft_json())

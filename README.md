@@ -15,8 +15,9 @@ drafted by shelling out to an AI CLI you already have installed.
 3. **render** — turns a draft document into the final commit message
    (or, with `--changelog-only`, just the changelog body fragment).
 
-Each subcommand reads stdin/writes stdout by default (`--input`/`--output`
-override this), so they compose:
+Each subcommand reads stdin/writes stdout by default (`--input`/`-o`/
+`--output-path` override this; `-` means stdin/stdout explicitly), so they
+compose:
 
 ```sh
 git-suggest scan | git-suggest draft | git-suggest render

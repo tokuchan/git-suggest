@@ -1,7 +1,7 @@
 """Command-line entry point wiring scan/draft/render together (ADR 0003, 0006).
 
 Each subcommand reads stdin/writes stdout by default, overridable with
---input/--output. The bare command chains scan -> draft -> render.
+--input/--output-path (-o). The bare command chains scan -> draft -> render.
 """
 
 from __future__ import annotations
@@ -32,10 +32,24 @@ from git_suggest.scan import build_scan_report
 logger = logging.getLogger(__name__)
 
 _INPUT_OPTION = click.option(
-    "--input", "input_path", type=click.Path(path_type=Path), help="Read input from FILE."
+    "--input",
+    "input_path",
+    type=click.Path(path_type=Path),
+    help="Read input from FILE, or '-' (or omit) for stdin.",
 )
 _OUTPUT_OPTION = click.option(
-    "--output", "output_path", type=click.Path(path_type=Path), help="Write output to FILE."
+    "-o",
+    "--output-path",
+    "output_path",
+    type=click.Path(path_type=Path),
+    help="Write output to FILE, or '-' (or omit) for stdout.",
+)
+_APPEND_OPTION = click.option(
+    "-a",
+    "--append",
+    "append",
+    is_flag=True,
+    help="Append to --output-path's file instead of truncating (ignored when writing to stdout).",
 )
 
 _CONFIG_EPILOG = """
@@ -58,17 +72,28 @@ overridable there):
 _NO_STAGED_CHANGES_MESSAGE = "No staged changes found; stage something first (`git add`)."
 
 
+def _normalize_dash(path: Path | None) -> Path | None:
+    """Treat the literal path '-' the same as not passing --input/--output-path at all."""
+    return None if path is not None and str(path) == "-" else path
+
+
 def read_input(input_path: Path | None) -> str:
-    """Read text from --input FILE, or stdin otherwise."""
+    """Read text from --input FILE, or stdin otherwise ('-' also means stdin)."""
+    input_path = _normalize_dash(input_path)
     return input_path.read_text() if input_path else sys.stdin.read()
 
 
-def write_output(text: str, output_path: Path | None) -> None:
-    """Write text to --output FILE, or stdout otherwise."""
-    if output_path:
-        output_path.write_text(text)
-    else:
+def write_output(text: str, output_path: Path | None, append: bool = False) -> None:
+    """Write text to --output-path FILE, or stdout otherwise ('-' also means stdout).
+
+    --append is ignored when writing to stdout; there's no file to append to.
+    """
+    output_path = _normalize_dash(output_path)
+    if output_path is None:
         click.echo(text)
+        return
+    with output_path.open("a" if append else "w") as handle:
+        handle.write(text)
 
 
 def require_backend_runner(config: Config) -> Callable[[str], str]:
@@ -127,6 +152,8 @@ def commit_with_message(message: str, edit: bool) -> None:
 @click.option(
     "--commit", "do_commit", is_flag=True, help="Run `git commit -F -` non-interactively."
 )
+@_OUTPUT_OPTION
+@_APPEND_OPTION
 @click.option("-v", "--verbose", count=True, help="Increase log verbosity (repeatable: -v, -vv).")
 @click.option(
     "-q", "--quiet", count=True, help="Decrease log verbosity (repeatable: -q, -qq); cancels -v."
@@ -139,6 +166,8 @@ def main(
     ctx: click.Context,
     edit: bool,
     do_commit: bool,
+    output_path: Path | None,
+    append: bool,
     verbose: int,
     quiet: int,
     want_log: bool,
@@ -155,7 +184,9 @@ def main(
 
     The result is printed to stdout by default, so `git-suggest` also works
     as a custom command inside tools like lazygit. Pass --edit to open it in
-    `git commit -e -F -`, or --commit to commit it non-interactively.
+    `git commit -e -F -`, or --commit to commit it non-interactively. Pass
+    -o/--output-path to write it to a file instead (use '-', or omit, for
+    stdout); -a/--append appends rather than truncates.
 
     Each of scan/draft/render can also be run and composed on its own, e.g.
     `git-suggest scan | git-suggest draft | git-suggest render`.
@@ -174,25 +205,31 @@ def main(
         return
     if edit or do_commit:
         commit_with_message(message, edit=edit)
+    elif output_path is not None:
+        write_output(message, output_path, append)
     else:
         print_message(message, config.output_style)
 
 
 @main.command("scan")
 @_OUTPUT_OPTION
+@_APPEND_OPTION
 @click.pass_obj
-def scan_command(mode: str, output_path: Path | None) -> None:
+def scan_command(mode: str, output_path: Path | None, append: bool) -> None:
     """Print a concise report of staged changes (full diffs for text, filenames for binary)."""
     with log_output_context(mode):
         report = build_scan_report()
-    write_output(report, output_path)
+    write_output(report, output_path, append)
 
 
 @main.command("draft")
 @_INPUT_OPTION
 @_OUTPUT_OPTION
+@_APPEND_OPTION
 @click.pass_obj
-def draft_command(mode: str, input_path: Path | None, output_path: Path | None) -> None:
+def draft_command(
+    mode: str, input_path: Path | None, output_path: Path | None, append: bool
+) -> None:
     """Turn a scan report (stdin, or --input) into a structured draft JSON document."""
     config = get_config()
     scan_report = read_input(input_path)
@@ -201,19 +238,24 @@ def draft_command(mode: str, input_path: Path | None, output_path: Path | None) 
         return
     with log_output_context(mode):
         doc = draft_document_from_scan(scan_report, config)
-    write_output(doc.model_dump_json(indent=2), output_path)
+    write_output(doc.model_dump_json(indent=2), output_path, append)
 
 
 @main.command("render")
 @_INPUT_OPTION
 @_OUTPUT_OPTION
+@_APPEND_OPTION
 @click.option("--changelog-only", is_flag=True, help="Render only the Keep a Changelog body.")
 @click.pass_obj
 def render_command(
-    mode: str, input_path: Path | None, output_path: Path | None, changelog_only: bool
+    mode: str,
+    input_path: Path | None,
+    output_path: Path | None,
+    append: bool,
+    changelog_only: bool,
 ) -> None:
     """Render a draft JSON document (stdin, or --input) into a commit message."""
     doc = DraftDocument.model_validate_json(read_input(input_path))
     with log_output_context(mode):
         text = render_changelog_only(doc) if changelog_only else render_commit_message(doc)
-    write_output(text, output_path)
+    write_output(text, output_path, append)
