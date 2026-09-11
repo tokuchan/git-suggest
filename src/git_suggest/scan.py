@@ -1,7 +1,10 @@
 """Build a concise scan report from staged git changes (ADR 0004).
 
 Full diff hunks are kept for text files; binary files are listed by
-filename only. Small functions compose to build the report.
+filename only. Small functions compose to build the report. A leading
+"subject-budget" line is embedded so `draft` can size the AI's subject
+line correctly without needing the reference prefix's literal text
+(ADR 0014).
 """
 
 from __future__ import annotations
@@ -9,6 +12,8 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
+
+from git_suggest.config import Config, get_config
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +81,42 @@ def format_entry(path: str, is_binary: bool, cwd: Path | None = None) -> str:
     return format_text_entry(path, cwd=cwd)
 
 
-def build_scan_report(cwd: Path | None = None) -> str:
-    """Build the full scan report text for all currently staged changes."""
+def current_branch(cwd: Path | None = None) -> str:
+    """Return the current branch name verbatim (`git rev-parse --abbrev-ref HEAD`)."""
+    return run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd).strip()
+
+
+def subject_budget(reference: str | None, config: Config) -> tuple[int, int]:
+    """Return (max, preferred) subject-length budget, reduced by the reference prefix's length.
+
+    Both of config's subject_max_length/subject_preferred_length count the
+    full subject line end-to-end; a reference prefix (e.g. from -r/-b)
+    consumes some of that budget before the AI-chosen `type(scope): `
+    even begins, so its length (plus the ": " separator) is subtracted
+    here. `type`/`scope` lengths are deliberately not accounted for, since
+    the AI hasn't chosen them yet (see ADR 0014/0015).
+    """
+    prefix_len = len(f"{reference}: ") if reference else 0
+    max_len = config.subject_max_length - prefix_len
+    preferred_len = max(0, config.subject_preferred_length - prefix_len)
+    return max_len, preferred_len
+
+
+def format_subject_budget_line(max_len: int, preferred_len: int) -> str:
+    """Render the leading machine-readable subject-budget line for the scan report."""
+    return f"# subject-budget: max={max_len} preferred={preferred_len}"
+
+
+def build_scan_report(
+    cwd: Path | None = None,
+    reference: str | None = None,
+    config: Config | None = None,
+) -> str:
+    """Build the full scan report text for all currently staged changes.
+
+    A leading subject-budget line (ADR 0014) is always included ahead of
+    the diff entries, sized down by `reference`'s length when given.
+    """
     logger.info("Scanning staged changes (git diff --cached)")
     if not has_staged_changes(cwd=cwd):
         logger.info("No staged changes found")
@@ -85,4 +124,6 @@ def build_scan_report(cwd: Path | None = None) -> str:
     files = staged_files(cwd=cwd)
     logger.info("Found %d staged file(s)", len(files))
     entries = [format_entry(path, is_binary, cwd=cwd) for path, is_binary in files]
-    return "\n\n".join(entries)
+    max_len, preferred_len = subject_budget(reference, config or get_config())
+    budget_line = format_subject_budget_line(max_len, preferred_len)
+    return "\n\n".join([budget_line, *entries])

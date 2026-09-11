@@ -89,6 +89,29 @@ def test_render_command_input_dash_means_stdin() -> None:
     assert result.stdout.strip() == "feat(cli): wire up subcommands"
 
 
+def test_scan_command_reference_reduces_embedded_budget(staged_repo: Path) -> None:
+    """-r/--reference embeds a subject-budget line reduced by the reference's length."""
+    result = CliRunner().invoke(main, ["scan", "-r", "AMCC-12202"])
+    assert result.exit_code == 0
+    assert "# subject-budget: max=60 preferred=38" in result.output
+
+
+def test_scan_command_branch_reference_uses_current_branch(staged_repo: Path) -> None:
+    """-b/--branch-reference reduces the budget using the current branch name's length."""
+    subprocess.run(["git", "checkout", "-q", "-b", "feature-x"], cwd=staged_repo, check=True)
+    result = CliRunner().invoke(main, ["scan", "-b"])
+    assert result.exit_code == 0
+    # "feature-x: " is 11 characters.
+    assert "# subject-budget: max=61 preferred=39" in result.output
+
+
+def test_scan_command_reference_and_branch_reference_conflict(staged_repo: Path) -> None:
+    """Passing both -r and -b is a hard error (mutually exclusive)."""
+    result = CliRunner().invoke(main, ["scan", "-r", "AMCC-12202", "-b"])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
 def test_render_command_prints_commit_message() -> None:
     """`git-suggest render` turns draft JSON on stdin into a commit message."""
     result = CliRunner().invoke(main, ["render"], input=_sample_draft_json())

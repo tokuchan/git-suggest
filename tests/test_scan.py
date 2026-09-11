@@ -5,12 +5,16 @@ from pathlib import Path
 
 import pytest
 
+from git_suggest.config import Config
 from git_suggest.scan import (
     build_scan_report,
+    current_branch,
     format_binary_entry,
+    format_subject_budget_line,
     has_staged_changes,
     parse_numstat_line,
     staged_files,
+    subject_budget,
 )
 
 
@@ -67,7 +71,9 @@ def test_build_scan_report_omits_binary_content(repo: Path) -> None:
     """The report lists a binary file by name only, without its content."""
     (repo / "blob.bin").write_bytes(b"\x00\x01\x02\x03")
     _git(repo, "add", "blob.bin")
-    assert build_scan_report(cwd=repo) == format_binary_entry("blob.bin")
+    report = build_scan_report(cwd=repo)
+    assert report.startswith("# subject-budget: max=72 preferred=50\n\n")
+    assert report.endswith(format_binary_entry("blob.bin"))
 
 
 def test_has_staged_changes_false_with_nothing_staged(repo: Path) -> None:
@@ -85,3 +91,41 @@ def test_has_staged_changes_true_with_a_staged_change(repo: Path) -> None:
 def test_build_scan_report_is_empty_with_nothing_staged(repo: Path) -> None:
     """build_scan_report short-circuits to an empty string with nothing staged."""
     assert build_scan_report(cwd=repo) == ""
+
+
+def test_subject_budget_with_no_reference_uses_config_defaults() -> None:
+    """With no reference, the budget is exactly the configured max/preferred."""
+    assert subject_budget(None, Config()) == (72, 50)
+
+
+def test_subject_budget_reduced_by_reference_prefix_length() -> None:
+    """A reference prefix's length (plus ': ') is subtracted from both budgets."""
+    # "AMCC-12202: " is 12 characters.
+    assert subject_budget("AMCC-12202", Config()) == (72 - 12, 50 - 12)
+
+
+def test_subject_budget_preferred_floors_at_zero_for_a_long_reference() -> None:
+    """preferred never goes negative even if the reference alone exceeds it."""
+    long_reference = "X" * 60
+    max_len, preferred_len = subject_budget(long_reference, Config())
+    assert preferred_len == 0
+    assert max_len == 72 - len(long_reference) - 2
+
+
+def test_format_subject_budget_line() -> None:
+    """The budget line has the expected machine-readable shape."""
+    assert format_subject_budget_line(65, 43) == "# subject-budget: max=65 preferred=43"
+
+
+def test_build_scan_report_embeds_subject_budget_line(repo: Path) -> None:
+    """The report always starts with a subject-budget line, reference or not."""
+    (repo / "existing.txt").write_text("line one\nline two\n")
+    _git(repo, "add", "existing.txt")
+    report = build_scan_report(cwd=repo, reference="AMCC-12202")
+    assert report.startswith("# subject-budget: max=60 preferred=38\n\n")
+
+
+def test_current_branch_returns_branch_name(repo: Path) -> None:
+    """current_branch reports the checked-out branch name verbatim."""
+    _git(repo, "checkout", "-q", "-b", "feature/AMCC-12202")
+    assert current_branch(cwd=repo) == "feature/AMCC-12202"

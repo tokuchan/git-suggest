@@ -27,7 +27,7 @@ from git_suggest.logging_utils import (
 )
 from git_suggest.model import DraftDocument
 from git_suggest.render import render_changelog_only, render_commit_message
-from git_suggest.scan import build_scan_report
+from git_suggest.scan import build_scan_report, current_branch
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,20 @@ _APPEND_OPTION = click.option(
     "append",
     is_flag=True,
     help="Append to --output-path's file instead of truncating (ignored when writing to stdout).",
+)
+_REFERENCE_OPTION = click.option(
+    "-r",
+    "--reference",
+    "reference",
+    default=None,
+    help="Prefix the commit subject with '<reference>: '.",
+)
+_BRANCH_REFERENCE_OPTION = click.option(
+    "-b",
+    "--branch-reference",
+    "branch_reference",
+    is_flag=True,
+    help="Like --reference, using the current branch name verbatim.",
 )
 
 _CONFIG_EPILOG = """
@@ -94,6 +108,21 @@ def write_output(text: str, output_path: Path | None, append: bool = False) -> N
         return
     with output_path.open("a" if append else "w") as handle:
         handle.write(text)
+
+
+def resolve_reference(
+    reference: str | None, branch_reference: bool, cwd: Path | None = None
+) -> str | None:
+    """Resolve -r/--reference and -b/--branch-reference into one prefix string, or None.
+
+    Raises a click.UsageError if both are given (ADR-recorded as mutually
+    exclusive: ambiguous intent shouldn't be silently resolved).
+    """
+    if reference and branch_reference:
+        raise click.UsageError("--reference and --branch-reference are mutually exclusive.")
+    if branch_reference:
+        return current_branch(cwd=cwd)
+    return reference
 
 
 def require_backend_runner(config: Config) -> Callable[[str], str]:
@@ -214,11 +243,24 @@ def main(
 @main.command("scan")
 @_OUTPUT_OPTION
 @_APPEND_OPTION
+@_REFERENCE_OPTION
+@_BRANCH_REFERENCE_OPTION
 @click.pass_obj
-def scan_command(mode: str, output_path: Path | None, append: bool) -> None:
-    """Print a concise report of staged changes (full diffs for text, filenames for binary)."""
+def scan_command(
+    mode: str,
+    output_path: Path | None,
+    append: bool,
+    reference: str | None,
+    branch_reference: bool,
+) -> None:
+    """Print a concise report of staged changes (full diffs for text, filenames for binary).
+
+    -r/--reference and -b/--branch-reference only affect the embedded
+    subject-length budget hint here; they don't change the diff content.
+    """
+    resolved_reference = resolve_reference(reference, branch_reference)
     with log_output_context(mode):
-        report = build_scan_report()
+        report = build_scan_report(reference=resolved_reference)
     write_output(report, output_path, append)
 
 
