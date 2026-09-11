@@ -48,6 +48,10 @@ overridable there):
   context_include_file_listing   include tracked-file listing (default: true)
   context_log_line_count         recent commits included as context (default: 20)
   output_style                   "auto" | "always" | "never" rich styling (default: "auto")
+  subject_max_length             hard cap on the rendered subject line (default: 72)
+  subject_preferred_length       preferred cap on the rendered subject line (default: 50)
+  subject_retry_attempts         retries for an over-long AI-drafted subject (default: 3)
+  body_wrap_width                column width for wrapping body text (default: 72)
 """
 
 

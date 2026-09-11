@@ -35,6 +35,15 @@ def test_load_config_with_no_file_returns_defaults(tmp_path: Path) -> None:
     assert config == Config()
 
 
+def test_default_subject_and_body_length_fields() -> None:
+    """Subject/body length knobs default per ADR 0016 and are overridable."""
+    config = Config()
+    assert config.subject_max_length == 72
+    assert config.subject_preferred_length == 50
+    assert config.subject_retry_attempts == 3
+    assert config.body_wrap_width == 72
+
+
 # Only fields with simple, independently-generatable values are exercised here;
 # backend_commands is a dict and covered separately if needed.
 _OVERRIDABLE_FIELDS = st.fixed_dictionaries(

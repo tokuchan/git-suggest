@@ -28,6 +28,10 @@ class Config(BaseModel):
     context_include_file_listing: bool = True
     context_log_line_count: int = 20
     output_style: str = "auto"  # one of: auto, always, never
+    subject_max_length: int = 72
+    subject_preferred_length: int = 50
+    subject_retry_attempts: int = 3
+    body_wrap_width: int = 72
 
 
 def default_config_path() -> Path:
