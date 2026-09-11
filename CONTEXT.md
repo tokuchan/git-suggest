@@ -58,6 +58,22 @@ defaults + TOML overrides), produced once per process by a memoized pure
 function and passed explicitly to the functions that need it.
 _Avoid_: config manager, config singleton, Borg
 
+**Reference prefix**:
+A literal string (from `-r/--reference`, or the current branch name from
+`-b/--branch-reference`) prepended to the rendered commit subject as
+`"<reference>: "`, ahead of the conventional-commit `type(scope): `
+segment. Stitched on at render time; never part of the AI-produced draft
+document.
+_Avoid_: ticket prefix, issue tag
+
+**Subject budget**:
+The pair of character-count hints (`max`, `preferred`) that `scan` computes
+from the reference prefix's length and embeds as a leading line in its
+plain-text report, so `draft` can instruct the AI backend how much room
+the `type(scope): description` portion of the subject has before the
+hard 72-character and preferred 50-character subject-line limits are hit.
+_Avoid_: length limit, character budget
+
 ## Subcommands
 
 **scan**: produces a scan report from staged changes.
