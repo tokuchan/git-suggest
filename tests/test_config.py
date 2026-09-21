@@ -42,6 +42,7 @@ def test_default_subject_and_body_length_fields() -> None:
     assert config.subject_preferred_length == 50
     assert config.subject_retry_attempts == 3
     assert config.body_wrap_width == 72
+    assert config.changelog_entry_indent == 4
 
 
 # Only fields with simple, independently-generatable values are exercised here;

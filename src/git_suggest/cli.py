@@ -78,8 +78,10 @@ overridable there):
   output_style                   "auto" | "always" | "never" rich styling (default: "auto")
   subject_max_length             hard cap on the rendered subject line (default: 72)
   subject_preferred_length       preferred cap on the rendered subject line (default: 50)
-  subject_retry_attempts         retries for an over-long AI-drafted subject (default: 3)
-  body_wrap_width                column width for wrapping body text (default: 72)
+  subject_retry_attempts        retries for an over-long AI-drafted subject (default: 3)
+  body_wrap_width               column width for wrapping body text (default: 72)
+  changelog_entry_indent         fixed indent for a changelog entry's statement,
+                                 under its own bullet label line (default: 4)
 """
 
 

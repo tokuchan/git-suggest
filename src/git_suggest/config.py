@@ -32,6 +32,7 @@ class Config(BaseModel):
     subject_preferred_length: int = 50
     subject_retry_attempts: int = 3
     body_wrap_width: int = 72
+    changelog_entry_indent: int = 4
 
 
 def default_config_path() -> Path:
