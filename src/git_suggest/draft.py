@@ -4,7 +4,9 @@ Small functions compose: gather repo context, build a prompt, call a
 backend runner (a curried function supplied by the caller), then parse and
 validate the response. A bounded description-only retry (ADR 0015) fixes
 up an over-length subject once the AI's actual type/scope/description are
-known.
+known. A ground-truth filter (ADR 0018) then drops any changelog entry
+whose `affected_file` wasn't actually part of the staged diff, guarding
+against the AI hallucinating file attribution from background context.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from git_suggest.config import Config
-from git_suggest.model import DraftDocument
+from git_suggest.model import DraftDocument, sections_of
 from git_suggest.render import format_header
 from git_suggest.scan import run_git
 
@@ -87,6 +89,16 @@ def build_prompt(scan_report: str, context: str, max_len: int = 72, preferred_le
         "`description` as `type(scope): description`. Keep that combined "
         f"text at or under {max_len} characters (hard limit), and ideally "
         f"at or under {preferred_len} characters if you can.\n\n"
+        "Every changelog entry's `affected_file` must be copied verbatim "
+        "from a `## <path>` header under 'Staged changes' below — never "
+        "from 'Project context'. Project context (tracked files, README, "
+        "recent commits) describes the existing repository and its "
+        "history for background only; nothing in it is part of what "
+        "changed in this commit, and none of it may be reported as a "
+        "change. Keep each `change_statement` concise (one sentence) and "
+        "strictly grounded in what the diff actually shows — do not "
+        "speculate about effects, motivations, or files the diff doesn't "
+        "show.\n\n"
         f"Project context:\n{context}\n\n"
         f"Staged changes:\n{scan_report}\n"
     )
@@ -106,6 +118,49 @@ def parse_draft_response(raw: str) -> DraftDocument:
     doc = DraftDocument.model_validate(json.loads(extract_json_object(raw)))
     logger.debug("Draft document type=%s scope=%r", doc.type, doc.scope)
     return doc
+
+
+_ENTRY_HEADER_PATTERN = re.compile(
+    r"^## (.+?)(?: \(binary file, content omitted\))?$", re.MULTILINE
+)
+
+
+def staged_files_in_report(scan_report: str) -> set[str]:
+    """Return the file paths scan actually reported as staged, parsed from its `## <path>` headers.
+
+    Parsed straight from the same scan report text the AI backend was
+    shown (ADR 0018), so it's an exact match against what the model could
+    legitimately have seen — not a fresh git query that could drift from
+    what was actually sent in the prompt.
+    """
+    return {match.group(1) for match in _ENTRY_HEADER_PATTERN.finditer(scan_report)}
+
+
+def drop_ungrounded_changelog_entries(doc: DraftDocument, staged_files: set[str]) -> DraftDocument:
+    """Drop any changelog entry whose `affected_file` wasn't actually staged (ADR 0018).
+
+    A safety net against hallucinated file attribution — e.g. the AI
+    echoing a filename it saw in 'Project context' (tracked files,
+    README, recent commits) instead of the actual diff. Entries
+    referencing files outside `staged_files` are dropped and logged
+    rather than silently rendered as if they were real changes.
+    """
+    updates: dict[str, list] = {}
+    for name, entries in sections_of(doc.changelog):
+        kept = [entry for entry in entries if entry.affected_file in staged_files]
+        if len(kept) == len(entries):
+            continue
+        for entry in entries:
+            if entry.affected_file not in staged_files:
+                logger.warning(
+                    "Dropping ungrounded changelog entry for %r (not part of the staged diff): %r",
+                    entry.affected_file,
+                    entry.change_statement,
+                )
+        updates[name] = kept
+    if not updates:
+        return doc
+    return doc.model_copy(update={"changelog": doc.changelog.model_copy(update=updates)})
 
 
 def build_length_retry_prompt(doc: DraftDocument, max_len: int, preferred_len: int) -> str:
@@ -170,14 +225,17 @@ def run_draft(
 ) -> DraftDocument:
     """Build the prompt, call the backend runner, and return the parsed DraftDocument.
 
-    Once a response is parsed, an over-length subject is retried (ADR 0015)
-    against the budget parsed from the scan report (ADR 0014).
+    Once a response is parsed, ungrounded changelog entries are dropped
+    (ADR 0018) and an over-length subject is retried (ADR 0015) against
+    the budget parsed from the scan report (ADR 0014).
     """
     context = gather_context(config, cwd=cwd)
     max_len, preferred_len = parse_subject_budget(scan_report, config)
     prompt = build_prompt(scan_report, context, max_len, preferred_len)
     logger.info("Requesting draft document from AI backend")
     doc = parse_draft_response(runner(prompt))
+    if config.changelog_grounding_enabled:
+        doc = drop_ungrounded_changelog_entries(doc, staged_files_in_report(scan_report))
     return enforce_subject_length(
         doc, runner, max_len, preferred_len, config.subject_retry_attempts
     )

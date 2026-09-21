@@ -10,6 +10,7 @@ from git_suggest.config import Config
 from git_suggest.draft import (
     build_length_retry_prompt,
     build_prompt,
+    drop_ungrounded_changelog_entries,
     enforce_subject_length,
     extract_json_object,
     find_readme,
@@ -18,8 +19,9 @@ from git_suggest.draft import (
     parse_length_retry_response,
     parse_subject_budget,
     run_draft,
+    staged_files_in_report,
 )
-from git_suggest.model import CommitType, DraftDocument
+from git_suggest.model import ChangelogEntry, ChangelogSections, CommitType, DraftDocument
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -122,10 +124,10 @@ def test_run_draft_composes_context_prompt_and_runner(repo: Path) -> None:
         captured_prompts.append(prompt)
         return _draft_json()
 
-    doc = run_draft("## existing.txt\n+line two", fake_runner, Config(), cwd=repo)
+    doc = run_draft("## src/app.py\n+line two", fake_runner, Config(), cwd=repo)
     assert isinstance(doc, DraftDocument)
     assert doc.type == CommitType.FIX
-    assert "## existing.txt" in captured_prompts[0]
+    assert "## src/app.py" in captured_prompts[0]
 
 
 def test_parse_subject_budget_reads_embedded_line() -> None:
@@ -146,6 +148,14 @@ def test_build_prompt_includes_budget_instructions() -> None:
     assert "38 characters" in prompt
 
 
+def test_build_prompt_includes_file_grounding_instructions() -> None:
+    """build_prompt tells the AI to ground affected_file in the diff, not context."""
+    prompt = build_prompt("## file.py\n+x", "# Tracked files\nfile.py")
+    assert "never" in prompt
+    assert "Project context" in prompt
+    assert "background only" in prompt
+
+
 def test_build_length_retry_prompt_reports_actual_and_target_lengths() -> None:
     """The retry prompt states the current header, its length, and both budgets."""
     doc = DraftDocument(type=CommitType.FEAT, scope="cli", description="a very long description")
@@ -158,6 +168,75 @@ def test_build_length_retry_prompt_reports_actual_and_target_lengths() -> None:
 def test_parse_length_retry_response_extracts_description() -> None:
     """parse_length_retry_response pulls the description field out of the reply."""
     assert parse_length_retry_response('{"description": "shorter"}') == "shorter"
+
+
+def test_staged_files_in_report_parses_text_and_binary_headers() -> None:
+    """staged_files_in_report extracts paths from both text and binary entry headers."""
+    scan_report = (
+        "# subject-budget: max=72 preferred=50\n\n"
+        "## src/app.py\n\n+added line\n\n"
+        "## assets/logo.png (binary file, content omitted)"
+    )
+    assert staged_files_in_report(scan_report) == {"src/app.py", "assets/logo.png"}
+
+
+def test_staged_files_in_report_empty_when_no_headers() -> None:
+    """staged_files_in_report returns an empty set for a report with no entries."""
+    assert staged_files_in_report("# subject-budget: max=72 preferred=50") == set()
+
+
+def _entry(affected_file: str) -> ChangelogEntry:
+    return ChangelogEntry(
+        affected_file=affected_file, project_context="x", change_statement="Did a thing."
+    )
+
+
+def test_drop_ungrounded_changelog_entries_keeps_grounded_entries() -> None:
+    """An entry whose affected_file was actually staged is kept unchanged."""
+    doc = DraftDocument(
+        type=CommitType.FIX,
+        description="fix bug",
+        changelog=ChangelogSections(fixed=[_entry("src/app.py")]),
+    )
+    result = drop_ungrounded_changelog_entries(doc, staged_files={"src/app.py"})
+    assert result is doc
+
+
+def test_drop_ungrounded_changelog_entries_drops_hallucinated_file(caplog) -> None:
+    """An entry referencing a file outside the staged set is dropped and logged."""
+    doc = DraftDocument(
+        type=CommitType.FIX,
+        description="fix bug",
+        changelog=ChangelogSections(
+            fixed=[_entry("src/app.py"), _entry("src/config.py")],
+        ),
+    )
+    with caplog.at_level("WARNING"):
+        result = drop_ungrounded_changelog_entries(doc, staged_files={"src/app.py"})
+    assert [entry.affected_file for entry in result.changelog.fixed] == ["src/app.py"]
+    assert "src/config.py" in caplog.text
+
+
+def test_run_draft_drops_ungrounded_changelog_entries_by_default(repo: Path) -> None:
+    """run_draft drops a changelog entry for a file that wasn't in the scan report."""
+
+    def fake_runner(prompt: str) -> str:
+        return _draft_json()  # references "src/app.py"
+
+    doc = run_draft("## some/other/file.py\n+x", fake_runner, Config(), cwd=repo)
+    assert doc.changelog.fixed == []
+
+
+def test_run_draft_keeps_ungrounded_entries_when_grounding_disabled(repo: Path) -> None:
+    """With changelog_grounding_enabled=False, run_draft skips the ground-truth filter."""
+
+    def fake_runner(prompt: str) -> str:
+        return _draft_json()  # references "src/app.py"
+
+    config = Config(changelog_grounding_enabled=False)
+    doc = run_draft("## some/other/file.py\n+x", fake_runner, config, cwd=repo)
+    assert len(doc.changelog.fixed) == 1
+    assert doc.changelog.fixed[0].affected_file == "src/app.py"
 
 
 def test_enforce_subject_length_returns_doc_unchanged_when_already_within_budget() -> None:
