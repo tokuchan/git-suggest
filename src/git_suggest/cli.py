@@ -160,7 +160,12 @@ def chain_scan_draft_render(config: Config, reference: str | None = None) -> str
     doc = draft_document_from_scan(scan_report, config)
     logger.info("Leaving draft")
     logger.info("Entering render")
-    message = render_commit_message(doc, reference=reference, width=config.body_wrap_width)
+    message = render_commit_message(
+        doc,
+        reference=reference,
+        width=config.body_wrap_width,
+        indent=config.changelog_entry_indent,
+    )
     logger.info("Leaving render")
     return message
 
@@ -322,9 +327,14 @@ def render_command(
     doc = DraftDocument.model_validate_json(read_input(input_path))
     with log_output_context(mode):
         if changelog_only:
-            text = render_changelog_only(doc, width=config.body_wrap_width)
+            text = render_changelog_only(
+                doc, width=config.body_wrap_width, indent=config.changelog_entry_indent
+            )
         else:
             text = render_commit_message(
-                doc, reference=resolved_reference, width=config.body_wrap_width
+                doc,
+                reference=resolved_reference,
+                width=config.body_wrap_width,
+                indent=config.changelog_entry_indent,
             )
     write_output(text, output_path, append)

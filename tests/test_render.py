@@ -58,7 +58,8 @@ def test_render_commit_message_golden() -> None:
         "feat(cli): add render subcommand\n"
         "\n"
         "### Added\n"
-        "- **src/git_suggest/render.py**: Add the render subcommand."
+        "- **src/git_suggest/render.py**:\n"
+        "    Add the render subcommand."
     )
     assert render_commit_message(doc) == expected
 
@@ -72,7 +73,7 @@ def test_render_commit_message_with_no_changelog_entries_is_header_only() -> Non
 def test_render_changelog_only_omits_header() -> None:
     """--changelog-only output has no conventional-commit header line."""
     doc = _doc(scope="cli")
-    expected = "### Added\n- **src/git_suggest/render.py**: Add the render subcommand."
+    expected = "### Added\n- **src/git_suggest/render.py**:\n    Add the render subcommand."
     assert render_changelog_only(doc) == expected
 
 
@@ -105,18 +106,65 @@ def test_wrap_body_text_wraps_at_width_with_hanging_indent() -> None:
     assert all(line.startswith("  ") for line in lines[1:])
 
 
-def test_format_entry_line_wraps_long_statement_under_hanging_indent() -> None:
-    """A long changelog entry wraps with continuation lines under the statement text."""
+def test_wrap_body_text_applies_initial_indent_to_first_line_too() -> None:
+    """A given initial_indent lands on the first line as well as continuations."""
+    text = "one two three four five six seven eight nine ten"
+    wrapped = wrap_body_text(text, width=20, initial_indent="    ", subsequent_indent="    ")
+    lines = wrapped.splitlines()
+    assert all(len(line) <= 20 for line in lines)
+    assert len(lines) > 1
+    assert all(line.startswith("    ") for line in lines)
+
+
+def test_format_entry_line_puts_statement_on_its_own_indented_line() -> None:
+    """The label ('- **file**:') is its own line; the statement is indented below it."""
+    entry = ChangelogEntry(
+        affected_file="a.py",
+        project_context="x",
+        change_statement="a short change statement",
+    )
+    rendered = format_entry_line(entry, width=72, indent=4)
+    lines = rendered.splitlines()
+    assert lines[0] == "- **a.py**:"
+    assert all(line.startswith("    ") for line in lines[1:])
+    assert "".join(lines[1:]).strip() != ""
+
+
+def test_format_entry_line_wraps_long_statement_all_lines_indented() -> None:
+    """A long changelog entry wraps with every statement line under the fixed indent.
+
+    No blank line separates the label from the statement, so the wrapped
+    statement stays part of the same Markdown list item as a lazily
+    continued paragraph, rather than becoming its own list-item paragraph.
+    """
     entry = ChangelogEntry(
         affected_file="a.py",
         project_context="x",
         change_statement="a very long change statement that should wrap onto more than one line",
     )
-    rendered = format_entry_line(entry, width=30)
+    rendered = format_entry_line(entry, width=30, indent=4)
     lines = rendered.splitlines()
-    assert lines[0].startswith("- **a.py**: ")
-    prefix_width = len("- **a.py**: ")
-    assert all(line.startswith(" " * prefix_width) for line in lines[1:])
+    assert lines[0] == "- **a.py**:"
+    assert len(lines) > 2  # label line + at least two wrapped statement lines
+    assert all(line.startswith("    ") for line in lines[1:])
+    assert all(len(line) <= 30 for line in lines[1:])
+    assert "\n\n" not in rendered  # no blank line breaking the list item
+
+
+def test_format_entry_line_long_filename_does_not_shrink_statement_wrap_width() -> None:
+    """A long filename lives on its own label line, so it can't eat the wrap budget."""
+    long_name = "src/" + "x" * 60 + "/file.py"
+    entry = ChangelogEntry(
+        affected_file=long_name,
+        project_context="x",
+        change_statement="a statement that needs the full width to fit on one line",
+    )
+    rendered = format_entry_line(entry, width=72, indent=4)
+    lines = rendered.splitlines()
+    assert lines[0] == f"- **{long_name}**:"
+    # Full statement fits on one wrapped line since only the fixed 4-space
+    # indent (not the long filename) constrains the statement's width.
+    assert len(lines) == 2
 
 
 _text_strategy = st.text(
