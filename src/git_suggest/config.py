@@ -33,6 +33,7 @@ class Config(BaseModel):
     subject_retry_attempts: int = 3
     body_wrap_width: int = 72
     changelog_entry_indent: int = 4
+    changelog_grounding_enabled: bool = True
 
 
 def default_config_path() -> Path:

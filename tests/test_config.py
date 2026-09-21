@@ -45,6 +45,11 @@ def test_default_subject_and_body_length_fields() -> None:
     assert config.changelog_entry_indent == 4
 
 
+def test_default_changelog_grounding_enabled() -> None:
+    """The hallucinated-file changelog filter defaults on, per ADR 0018."""
+    assert Config().changelog_grounding_enabled is True
+
+
 # Only fields with simple, independently-generatable values are exercised here;
 # backend_commands is a dict and covered separately if needed.
 _OVERRIDABLE_FIELDS = st.fixed_dictionaries(

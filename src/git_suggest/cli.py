@@ -82,6 +82,8 @@ overridable there):
   body_wrap_width               column width for wrapping body text (default: 72)
   changelog_entry_indent         fixed indent for a changelog entry's statement,
                                  under its own bullet label line (default: 4)
+  changelog_grounding_enabled    drop changelog entries whose affected_file
+                                 wasn't actually staged (default: true)
 """
 
 
