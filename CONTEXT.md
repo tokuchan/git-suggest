@@ -74,6 +74,14 @@ the `type(scope): description` portion of the subject has before the
 hard 72-character and preferred 50-character subject-line limits are hit.
 _Avoid_: length limit, character budget
 
+**Repo-relative output path**:
+The git-dir-anchored file target from `-R`/`--output-repo-path`, resolved
+via `git rev-parse --absolute-git-dir` so it lands in `.git/` (or
+`.git/modules/<submodule>/`, or `.git/worktrees/<name>/`, whichever
+applies), rejecting values that try to escape that directory. Mutually
+exclusive with `-o`/`--output-path`.
+_Avoid_: git-dir path, repo path
+
 ## Subcommands
 
 **scan**: produces a scan report from staged changes.

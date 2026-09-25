@@ -82,6 +82,103 @@ def test_scan_command_append_without_output_path_is_ignored(staged_repo: Path) -
     assert "existing.txt" in result.output
 
 
+def test_scan_command_writes_to_output_repo_path(staged_repo: Path) -> None:
+    """-R/--output-repo-path writes inside the repo's .git/ directory."""
+    result = CliRunner().invoke(main, ["scan", "-R", "LAZYGIT_PENDING_COMMIT"])
+    assert result.exit_code == 0
+    assert "existing.txt" not in result.output
+    target = staged_repo / ".git" / "LAZYGIT_PENDING_COMMIT"
+    assert "existing.txt" in target.read_text()
+
+
+def test_scan_command_writes_to_output_repo_path_long_form(staged_repo: Path) -> None:
+    """--output-repo-path (long form) behaves the same as -R."""
+    result = CliRunner().invoke(main, ["scan", "--output-repo-path", "LAZYGIT_PENDING_COMMIT"])
+    assert result.exit_code == 0
+    target = staged_repo / ".git" / "LAZYGIT_PENDING_COMMIT"
+    assert "existing.txt" in target.read_text()
+
+
+def test_scan_command_output_repo_path_appends(staged_repo: Path) -> None:
+    """-a/--append also applies to -R/--output-repo-path's resolved target."""
+    target = staged_repo / ".git" / "LAZYGIT_PENDING_COMMIT"
+    target.write_text("PRIOR\n")
+    result = CliRunner().invoke(main, ["scan", "-R", "LAZYGIT_PENDING_COMMIT", "-a"])
+    assert result.exit_code == 0
+    content = target.read_text()
+    assert content.startswith("PRIOR\n")
+    assert "existing.txt" in content
+
+
+def test_scan_command_output_repo_path_resolves_inside_submodule(
+    staged_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """From a submodule's working dir, -R resolves to .git/modules/<name>/, not a nested .git."""
+    sub_origin = staged_repo.parent / "sub-origin"
+    sub_origin.mkdir()
+    _git(sub_origin, "init", "-q")
+    _git(sub_origin, "config", "user.email", "test@example.com")
+    _git(sub_origin, "config", "user.name", "Test")
+    (sub_origin / "a.txt").write_text("a\n")
+    _git(sub_origin, "add", "a.txt")
+    _git(sub_origin, "commit", "-q", "-m", "initial")
+    _git(staged_repo, "add", "existing.txt")
+    _git(staged_repo, "commit", "-q", "-m", "second")
+    _git(
+        staged_repo,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        str(sub_origin),
+        "sub",
+    )
+    submodule_dir = staged_repo / "sub"
+    (submodule_dir / "a.txt").write_text("a\nb\n")
+    _git(submodule_dir, "add", "a.txt")
+    monkeypatch.chdir(submodule_dir)
+
+    result = CliRunner().invoke(main, ["scan", "-R", "LAZYGIT_PENDING_COMMIT"])
+    assert result.exit_code == 0
+    target = staged_repo / ".git" / "modules" / "sub" / "LAZYGIT_PENDING_COMMIT"
+    assert target.is_file()
+    assert "a.txt" in target.read_text()
+
+
+def test_output_path_and_output_repo_path_conflict(staged_repo: Path) -> None:
+    """-o and -R together are a hard error (mutually exclusive)."""
+    result = CliRunner().invoke(main, ["scan", "-o", "out.txt", "-R", "LAZYGIT_PENDING_COMMIT"])
+    assert result.exit_code != 0
+    assert "mutually exclusive" in result.output
+
+
+def test_output_repo_path_rejects_absolute_path(staged_repo: Path) -> None:
+    """An absolute --output-repo-path value is rejected, not silently joined."""
+    result = CliRunner().invoke(main, ["scan", "-R", "/etc/passwd"])
+    assert result.exit_code != 0
+    assert "relative path" in result.output
+
+
+def test_output_repo_path_rejects_traversal_outside_git_dir(staged_repo: Path) -> None:
+    """A --output-repo-path value that '..'s its way out of the git-dir is rejected."""
+    result = CliRunner().invoke(main, ["scan", "-R", "../../etc/passwd"])
+    assert result.exit_code != 0
+    assert "escapes the git directory" in result.output
+
+
+def test_output_repo_path_requires_git_repo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--output-repo-path outside a git repository fails with a clear error, not a stack trace."""
+    monkeypatch.chdir(tmp_path)
+    result = CliRunner().invoke(
+        main, ["render", "-R", "LAZYGIT_PENDING_COMMIT"], input=_sample_draft_json()
+    )
+    assert result.exit_code != 0
+    assert "git repository" in result.output
+
+
 def test_render_command_input_dash_means_stdin() -> None:
     """Passing '-' to --input reads from stdin explicitly, same as omitting the flag."""
     result = CliRunner().invoke(main, ["render", "--input", "-"], input=_sample_draft_json())
@@ -135,6 +232,16 @@ def test_render_command_reference_and_branch_reference_conflict() -> None:
     assert "mutually exclusive" in result.output
 
 
+def test_render_command_writes_to_output_repo_path(staged_repo: Path) -> None:
+    """`render -R` writes the rendered message inside the repo's .git/ directory."""
+    result = CliRunner().invoke(
+        main, ["render", "-R", "LAZYGIT_PENDING_COMMIT"], input=_sample_draft_json()
+    )
+    assert result.exit_code == 0
+    target = staged_repo / ".git" / "LAZYGIT_PENDING_COMMIT"
+    assert target.read_text().strip() == "feat(cli): wire up subcommands"
+
+
 def test_render_command_changelog_only(staged_repo: Path) -> None:
     """`git-suggest render --changelog-only` omits the commit header."""
     doc = DraftDocument(
@@ -167,6 +274,19 @@ def test_draft_command_uses_backend_runner(monkeypatch: pytest.MonkeyPatch) -> N
     assert parsed["type"] == "feat"
 
 
+def test_draft_command_writes_to_output_repo_path(
+    staged_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`draft -R` writes the draft JSON document inside the repo's .git/ directory."""
+    monkeypatch.setattr(
+        "git_suggest.cli.require_backend_runner", lambda config: lambda prompt: _sample_draft_json()
+    )
+    result = CliRunner().invoke(main, ["draft", "-R", "DRAFT.json"], input="## a.py\n+x")
+    assert result.exit_code == 0
+    target = staged_repo / ".git" / "DRAFT.json"
+    assert json.loads(target.read_text())["type"] == "feat"
+
+
 def test_bare_command_prints_message_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bare `git-suggest` chains scan/draft/render and prints plain text (piped)."""
     monkeypatch.setattr("git_suggest.cli.build_scan_report", lambda **kwargs: "## a.py\n+x")
@@ -176,6 +296,20 @@ def test_bare_command_prints_message_by_default(monkeypatch: pytest.MonkeyPatch)
     result = CliRunner().invoke(main, [])
     assert result.exit_code == 0
     assert result.stdout.strip() == "feat(cli): wire up subcommands"
+
+
+def test_bare_command_writes_to_output_repo_path(
+    staged_repo: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bare `git-suggest -R ...` writes the final message inside the repo's .git/ directory."""
+    monkeypatch.setattr("git_suggest.cli.build_scan_report", lambda **kwargs: "## a.py\n+x")
+    monkeypatch.setattr(
+        "git_suggest.cli.require_backend_runner", lambda config: lambda prompt: _sample_draft_json()
+    )
+    result = CliRunner().invoke(main, ["-R", "LAZYGIT_PENDING_COMMIT"])
+    assert result.exit_code == 0
+    target = staged_repo / ".git" / "LAZYGIT_PENDING_COMMIT"
+    assert target.read_text().strip() == "feat(cli): wire up subcommands"
 
 
 def test_commit_with_message_builds_expected_args(monkeypatch: pytest.MonkeyPatch) -> None:

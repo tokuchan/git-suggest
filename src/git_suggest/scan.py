@@ -86,6 +86,17 @@ def current_branch(cwd: Path | None = None) -> str:
     return run_git("rev-parse", "--abbrev-ref", "HEAD", cwd=cwd).strip()
 
 
+def absolute_git_dir(cwd: Path | None = None) -> Path:
+    """Return the absolute path to the current repo's git directory.
+
+    Uses `git rev-parse --absolute-git-dir` rather than assuming ".git/",
+    since that resolves correctly for plain repos (.git/), submodules
+    (.git/modules/<name>/), and worktrees (.git/worktrees/<name>/) alike
+    (ADR 0019).
+    """
+    return Path(run_git("rev-parse", "--absolute-git-dir", cwd=cwd).strip())
+
+
 def subject_budget(reference: str | None, config: Config) -> tuple[int, int]:
     """Return (max, preferred) subject-length budget, reduced by the reference prefix's length.
 

@@ -7,6 +7,7 @@ import pytest
 
 from git_suggest.config import Config
 from git_suggest.scan import (
+    absolute_git_dir,
     build_scan_report,
     current_branch,
     format_binary_entry,
@@ -129,3 +130,39 @@ def test_current_branch_returns_branch_name(repo: Path) -> None:
     """current_branch reports the checked-out branch name verbatim."""
     _git(repo, "checkout", "-q", "-b", "feature/AMCC-12202")
     assert current_branch(cwd=repo) == "feature/AMCC-12202"
+
+
+def test_absolute_git_dir_returns_dot_git_for_a_plain_repo(repo: Path) -> None:
+    """A plain repo's git-dir is its own .git/ directory, as an absolute path."""
+    assert absolute_git_dir(cwd=repo) == (repo / ".git").resolve()
+
+
+def test_absolute_git_dir_resolves_submodule_to_modules_subdir(tmp_path: Path) -> None:
+    """A submodule's git-dir is the superproject's .git/modules/<name>/, not its own .git."""
+    sub_origin = tmp_path / "sub-origin"
+    sub_origin.mkdir()
+    _git(sub_origin, "init", "-q")
+    _git(sub_origin, "config", "user.email", "test@example.com")
+    _git(sub_origin, "config", "user.name", "Test")
+    (sub_origin / "a.txt").write_text("a\n")
+    _git(sub_origin, "add", "a.txt")
+    _git(sub_origin, "commit", "-q", "-m", "initial")
+
+    superproject = tmp_path / "superproject"
+    superproject.mkdir()
+    _git(superproject, "init", "-q")
+    _git(superproject, "config", "user.email", "test@example.com")
+    _git(superproject, "config", "user.name", "Test")
+    _git(
+        superproject,
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        str(sub_origin),
+        "sub",
+    )
+
+    submodule_dir = superproject / "sub"
+    assert absolute_git_dir(cwd=submodule_dir) == (superproject / ".git" / "modules" / "sub")

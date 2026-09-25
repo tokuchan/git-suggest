@@ -39,6 +39,7 @@ git-suggest                # print a suggested commit message to stdout
 git-suggest --edit          # ...then open it in `git commit -e -F -`
 git-suggest --commit        # ...or commit it non-interactively
 git-suggest -o out.txt      # ...or write it to a file (-a to append)
+git-suggest -R LAZYGIT_PENDING_COMMIT  # ...or write it inside .git/
 git-suggest -r AMCC-12202   # ...prefixed with "AMCC-12202: "
 git-suggest -b              # ...prefixed with the current branch name
 ```
@@ -55,6 +56,23 @@ the conventional-commit `type(scope): ` segment — handy for ticket IDs.
 verbatim. The two are mutually exclusive. Both are also accepted by `scan`
 and `render` (`scan` uses them only to size the subject-length budget it
 hands to `draft`; `render` is where the literal prefix text is applied).
+
+## Repo-relative output
+
+`-R/--output-repo-path PATH` (accepted anywhere `-o/--output-path` is)
+writes output to `PATH` resolved inside the current repo's git directory
+— `.git/`, or `.git/modules/<submodule>/`, or `.git/worktrees/<name>/`,
+whichever applies — rather than a literal `.git/` under the working
+directory, so it still works correctly from inside a submodule or a
+linked worktree. This is how tools like lazygit expect their own
+temporary files (e.g. `LAZYGIT_PENDING_COMMIT`) to be found:
+
+```sh
+git-suggest -R LAZYGIT_PENDING_COMMIT
+```
+
+`PATH` must be relative and can't `..` its way out of that directory;
+`-o/--output-path` and `-R/--output-repo-path` are mutually exclusive.
 
 ## Subject and body length
 

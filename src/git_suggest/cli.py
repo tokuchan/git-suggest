@@ -1,12 +1,15 @@
 """Command-line entry point wiring scan/draft/render together (ADR 0003, 0006).
 
 Each subcommand reads stdin/writes stdout by default, overridable with
---input/--output-path (-o). The bare command chains scan -> draft -> render.
+--input/--output-path (-o), or --output-repo-path (-R) to write inside the
+repo's git directory (ADR 0019). The bare command chains scan -> draft ->
+render.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import subprocess
 import sys
 from collections.abc import Callable
@@ -27,7 +30,7 @@ from git_suggest.logging_utils import (
 )
 from git_suggest.model import DraftDocument
 from git_suggest.render import render_changelog_only, render_commit_message
-from git_suggest.scan import build_scan_report, current_branch
+from git_suggest.scan import absolute_git_dir, build_scan_report, current_branch
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,19 @@ _OUTPUT_OPTION = click.option(
     "output_path",
     type=click.Path(path_type=Path),
     help="Write output to FILE, or '-' (or omit) for stdout.",
+)
+_OUTPUT_REPO_PATH_OPTION = click.option(
+    "-R",
+    "--output-repo-path",
+    "output_repo_path",
+    default=None,
+    help=(
+        "Write output to PATH resolved inside the repo's git directory "
+        "(.git/, .git/modules/<submodule>/, or .git/worktrees/<name>/, "
+        "whichever applies), e.g. --output-repo-path=LAZYGIT_PENDING_COMMIT. "
+        "PATH must be relative and may not escape that directory. "
+        "Mutually exclusive with -o/--output-path."
+    ),
 )
 _APPEND_OPTION = click.option(
     "-a",
@@ -112,6 +128,51 @@ def write_output(text: str, output_path: Path | None, append: bool = False) -> N
         return
     with output_path.open("a" if append else "w") as handle:
         handle.write(text)
+
+
+def resolve_repo_output_path(value: str, cwd: Path | None = None) -> Path:
+    """Resolve --output-repo-path/-R's value against the repo's discovered git-dir.
+
+    Raises click.UsageError if the value is an absolute path, or if it
+    would escape the git-dir (e.g. via '..' segments) -- the whole point
+    of this flag is to land the file inside .git/ (or the equivalent
+    submodule/worktree git-dir), never outside it (ADR 0019). Raises
+    click.ClickException if cwd isn't inside a git repository at all.
+    """
+    candidate = Path(value)
+    if candidate.is_absolute():
+        raise click.UsageError(f"--output-repo-path must be a relative path, got {value!r}.")
+    try:
+        git_dir = absolute_git_dir(cwd=cwd)
+    except subprocess.CalledProcessError as exc:
+        raise click.ClickException(
+            "--output-repo-path requires running inside a git repository."
+        ) from exc
+    resolved = Path(os.path.normpath(git_dir / candidate))
+    try:
+        resolved.relative_to(git_dir)
+    except ValueError:
+        raise click.UsageError(
+            f"--output-repo-path {value!r} escapes the git directory ({git_dir})."
+        ) from None
+    return resolved
+
+
+def resolve_output_target(
+    output_path: Path | None,
+    output_repo_path: str | None,
+    cwd: Path | None = None,
+) -> Path | None:
+    """Resolve -o/--output-path and -R/--output-repo-path into one target (or None for stdout).
+
+    Raises click.UsageError if both are given -- mutually exclusive, same
+    pattern as -r/--reference vs -b/--branch-reference.
+    """
+    if output_path is not None and output_repo_path is not None:
+        raise click.UsageError("--output-path and --output-repo-path are mutually exclusive.")
+    if output_repo_path is not None:
+        return resolve_repo_output_path(output_repo_path, cwd=cwd)
+    return output_path
 
 
 def resolve_reference(
@@ -193,6 +254,7 @@ def commit_with_message(message: str, edit: bool) -> None:
     "--commit", "do_commit", is_flag=True, help="Run `git commit -F -` non-interactively."
 )
 @_OUTPUT_OPTION
+@_OUTPUT_REPO_PATH_OPTION
 @_APPEND_OPTION
 @_REFERENCE_OPTION
 @_BRANCH_REFERENCE_OPTION
@@ -209,6 +271,7 @@ def main(
     edit: bool,
     do_commit: bool,
     output_path: Path | None,
+    output_repo_path: str | None,
     append: bool,
     reference: str | None,
     branch_reference: bool,
@@ -230,9 +293,10 @@ def main(
     as a custom command inside tools like lazygit. Pass --edit to open it in
     `git commit -e -F -`, or --commit to commit it non-interactively. Pass
     -o/--output-path to write it to a file instead (use '-', or omit, for
-    stdout); -a/--append appends rather than truncates. Pass -r/--reference
-    (or -b/--branch-reference for the current branch name) to prefix the
-    subject with "<reference>: ".
+    stdout), or -R/--output-repo-path to write it inside the repo's git
+    directory (e.g. -R LAZYGIT_PENDING_COMMIT); -a/--append appends rather
+    than truncates either target. Pass -r/--reference (or -b/--branch-reference
+    for the current branch name) to prefix the subject with "<reference>: ".
 
     Each of scan/draft/render can also be run and composed on its own, e.g.
     `git-suggest scan | git-suggest draft | git-suggest render`.
@@ -245,6 +309,7 @@ def main(
         return
     config = get_config()
     resolved_reference = resolve_reference(reference, branch_reference)
+    resolved_output = resolve_output_target(output_path, output_repo_path)
     with log_output_context(mode):
         message = chain_scan_draft_render(config, reference=resolved_reference)
     if message is None:
@@ -252,14 +317,15 @@ def main(
         return
     if edit or do_commit:
         commit_with_message(message, edit=edit)
-    elif output_path is not None:
-        write_output(message, output_path, append)
+    elif resolved_output is not None:
+        write_output(message, resolved_output, append)
     else:
         print_message(message, config.output_style)
 
 
 @main.command("scan")
 @_OUTPUT_OPTION
+@_OUTPUT_REPO_PATH_OPTION
 @_APPEND_OPTION
 @_REFERENCE_OPTION
 @_BRANCH_REFERENCE_OPTION
@@ -267,6 +333,7 @@ def main(
 def scan_command(
     mode: str,
     output_path: Path | None,
+    output_repo_path: str | None,
     append: bool,
     reference: str | None,
     branch_reference: bool,
@@ -277,33 +344,41 @@ def scan_command(
     subject-length budget hint here; they don't change the diff content.
     """
     resolved_reference = resolve_reference(reference, branch_reference)
+    resolved_output = resolve_output_target(output_path, output_repo_path)
     with log_output_context(mode):
         report = build_scan_report(reference=resolved_reference)
-    write_output(report, output_path, append)
+    write_output(report, resolved_output, append)
 
 
 @main.command("draft")
 @_INPUT_OPTION
 @_OUTPUT_OPTION
+@_OUTPUT_REPO_PATH_OPTION
 @_APPEND_OPTION
 @click.pass_obj
 def draft_command(
-    mode: str, input_path: Path | None, output_path: Path | None, append: bool
+    mode: str,
+    input_path: Path | None,
+    output_path: Path | None,
+    output_repo_path: str | None,
+    append: bool,
 ) -> None:
     """Turn a scan report (stdin, or --input) into a structured draft JSON document."""
     config = get_config()
+    resolved_output = resolve_output_target(output_path, output_repo_path)
     scan_report = read_input(input_path)
     if not scan_report.strip():
         click.echo(_NO_STAGED_CHANGES_MESSAGE, err=True)
         return
     with log_output_context(mode):
         doc = draft_document_from_scan(scan_report, config)
-    write_output(doc.model_dump_json(indent=2), output_path, append)
+    write_output(doc.model_dump_json(indent=2), resolved_output, append)
 
 
 @main.command("render")
 @_INPUT_OPTION
 @_OUTPUT_OPTION
+@_OUTPUT_REPO_PATH_OPTION
 @_APPEND_OPTION
 @_REFERENCE_OPTION
 @_BRANCH_REFERENCE_OPTION
@@ -313,6 +388,7 @@ def render_command(
     mode: str,
     input_path: Path | None,
     output_path: Path | None,
+    output_repo_path: str | None,
     append: bool,
     reference: str | None,
     branch_reference: bool,
@@ -326,6 +402,7 @@ def render_command(
     """
     config = get_config()
     resolved_reference = resolve_reference(reference, branch_reference)
+    resolved_output = resolve_output_target(output_path, output_repo_path)
     doc = DraftDocument.model_validate_json(read_input(input_path))
     with log_output_context(mode):
         if changelog_only:
@@ -339,4 +416,4 @@ def render_command(
                 width=config.body_wrap_width,
                 indent=config.changelog_entry_indent,
             )
-    write_output(text, output_path, append)
+    write_output(text, resolved_output, append)
