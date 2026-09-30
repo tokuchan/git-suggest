@@ -1,0 +1,63 @@
+#!/bin/sh
+# Tracked pre-push hook (ADR 0021): bumps this project's CalVer version.
+#
+# Activate once per clone with:
+#   git config core.hooksPath .githooks
+#
+# Policy lives entirely here, not in `git-suggest bump` itself:
+#   - only acts on pushes updating refs/heads/master
+#   - refuses to bump if the working tree isn't clean
+#   - skips the bump if the local pyproject.toml version already differs
+#     from the version at the remote-tracking SHA (already decided, either
+#     by a previous bump-and-retry cycle, or by hand)
+# Committing inside this hook can't retroactively join the push already
+# in flight, so on a real bump this aborts and asks for a manual retry.
+
+set -eu
+
+zero_sha="0000000000000000000000000000000000000000"
+
+read_version_at() {
+    # $1: a git ref/sha, or the string "WORKTREE" for the local file on disk.
+    if [ "$1" = "WORKTREE" ]; then
+        cat pyproject.toml 2>/dev/null | grep -E '^version = "' | head -1
+    else
+        git show "$1:pyproject.toml" 2>/dev/null | grep -E '^version = "' | head -1
+    fi
+}
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$remote_ref" != "refs/heads/master" ]; then
+        continue
+    fi
+    if [ "$local_sha" = "$zero_sha" ]; then
+        continue  # deleting the remote branch
+    fi
+
+    if ! git diff --quiet || ! git diff --cached --quiet; then
+        echo "pre-push: working tree isn't clean; refusing to bump the version." >&2
+        echo "Commit or stash your changes, then push again." >&2
+        exit 1
+    fi
+
+    local_version=$(read_version_at "WORKTREE")
+    if [ "$remote_sha" = "$zero_sha" ]; then
+        remote_version=""  # new branch, nothing to compare against
+    else
+        remote_version=$(read_version_at "$remote_sha")
+    fi
+
+    if [ "$local_version" != "$remote_version" ]; then
+        # Already decided for this push (a prior bump-and-retry cycle, or
+        # a hand-set version like the initial CalVer switchover) -- let it
+        # through unbumped.
+        continue
+    fi
+
+    new_version=$(uv run git-suggest bump)
+    echo "pre-push: bumped version to $new_version and committed it." >&2
+    echo "Run 'git push' again to push the bump along with your changes." >&2
+    exit 1
+done
+
+exit 0

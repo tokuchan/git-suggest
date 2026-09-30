@@ -31,6 +31,7 @@ from git_suggest.logging_utils import (
 from git_suggest.model import DraftDocument
 from git_suggest.render import render_changelog_only, render_commit_message
 from git_suggest.scan import absolute_git_dir, build_scan_report, current_branch
+from git_suggest.version import bump_version
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,11 @@ overridable there):
                                  under its own bullet label line (default: 4)
   changelog_grounding_enabled    drop changelog entries whose affected_file
                                  wasn't actually staged (default: true)
+  narrative_enabled              ask the AI backend for a commit narrative
+                                 (default: true)
+  release_commit_message_template
+                                 commit message used by `bump` (default:
+                                 "chore(release): bump version to {version}")
 """
 
 
@@ -417,3 +423,28 @@ def render_command(
                 indent=config.changelog_entry_indent,
             )
     write_output(text, resolved_output, append)
+
+
+@main.command("bump")
+@click.option(
+    "--project-path",
+    "project_path",
+    type=click.Path(path_type=Path),
+    default=Path("pyproject.toml"),
+    show_default=True,
+    help="Path to the pyproject.toml to bump.",
+)
+@click.pass_obj
+def bump_command(mode: str, project_path: Path) -> None:
+    """Compute, write, and commit this project's next CalVer version (ADR 0021).
+
+    Reads the current `version = "YY.MM.patch"` from --project-path,
+    computes the next one from today's date (patch resets to 0 when the
+    month changes), rewrites the file, and commits the change. This
+    command knows nothing about git push, branches, or remotes -- that
+    policy lives in `.githooks/pre-push`, which calls this.
+    """
+    config = get_config()
+    with log_output_context(mode):
+        new_version = bump_version(project_path, config)
+    click.echo(new_version)

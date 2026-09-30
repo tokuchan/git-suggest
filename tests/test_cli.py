@@ -411,3 +411,30 @@ def test_draft_command_short_circuits_with_empty_input(monkeypatch: pytest.Monke
     assert result.exit_code == 0
     assert called["backend"] is False
     assert "No staged changes" in result.output
+
+
+def test_bump_command_writes_commits_and_prints_new_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git-suggest bump` rewrites pyproject.toml, commits, and prints the new version.
+
+    Seeds a version far in the past so today's (year, month) always
+    differs from it, making the expected result (patch reset to 0)
+    independent of when this test actually runs.
+    """
+    from datetime import date
+
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "00.01.0"\n')
+    _git(tmp_path, "add", "pyproject.toml")
+    _git(tmp_path, "commit", "-q", "-m", "initial")
+    monkeypatch.chdir(tmp_path)
+
+    today = date.today()
+    expected = f"{today.year % 100:02d}.{today.month:02d}.0"
+    result = CliRunner().invoke(main, ["bump"])
+    assert result.exit_code == 0
+    assert expected in result.output
+    assert f'version = "{expected}"' in (tmp_path / "pyproject.toml").read_text()

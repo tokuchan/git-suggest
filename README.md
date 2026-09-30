@@ -129,6 +129,20 @@ subject_preferred_length = 50
 subject_retry_attempts = 3
 body_wrap_width = 72
 narrative_enabled = true
+release_commit_message_template = "chore(release): bump version to {version}"
+```
+
+## Versioning
+
+This project's own version (`pyproject.toml`) follows CalVer: `YY.MM.patch`
+(e.g. `26.09.0`), where `patch` counts releases within that month and resets
+to `0` when the month changes. `git-suggest bump` computes, writes, and
+commits the next version; it's plain and reusable (it knows nothing about
+git push, branches, or remotes), so any project can call it directly:
+
+```sh
+git-suggest bump                       # bump ./pyproject.toml
+git-suggest bump --project-path path/to/pyproject.toml
 ```
 
 ## Development
@@ -139,6 +153,20 @@ uv run pytest
 uv run ruff check .
 uv run ruff format .
 ```
+
+Run this once per clone to enable the tracked pre-push hook, which bumps
+the version automatically (ADR 0021):
+
+```sh
+git config core.hooksPath .githooks
+```
+
+It only acts on pushes to `master`, refuses to bump with a dirty working
+tree, and skips bumping when the version was already decided some other
+way (e.g. a previous bump-and-retry cycle). On a real bump it commits the
+change and aborts the push, asking you to run `git push` again — a
+commit made inside the hook can't retroactively join the push already in
+flight.
 
 Architecture decisions are recorded in `docs/adr/`; the project glossary is
 in `CONTEXT.md`. All changes must comport with every ADR as written.

@@ -93,9 +93,37 @@ applies), rejecting values that try to escape that directory. Mutually
 exclusive with `-o`/`--output-path`.
 _Avoid_: git-dir path, repo path
 
+**CalVer version**:
+This project's own `pyproject.toml` version, in `YY.MM.patch` form (e.g.
+`26.09.0`): two-digit year, two-digit month, and a patch counting
+releases within that month, resetting to `0` when the month changes.
+Distinct from the conventional-commit `type` enum and unrelated to
+semver; this project has no major/minor concept.
+_Avoid_: semver, release number
+
+**Bump**:
+The act of computing and writing this project's next CalVer version,
+performed by the `bump` subcommand: read the current version, compute
+the next one from today's date, rewrite `pyproject.toml`, and commit the
+change. Knows nothing about git push, branches, or remotes — that policy
+lives in the pre-push hook that calls it.
+_Avoid_: release, cut a version
+
+**Pre-push version hook**:
+The tracked `.githooks/pre-push` script (activated once per clone via
+`git config core.hooksPath .githooks`) that decides *whether* to bump:
+only on a push updating `refs/heads/master`, only with a clean working
+tree, and only when the local `pyproject.toml` version still matches the
+version at the remote-tracking SHA already being pushed. When those hold,
+it calls `bump` and aborts the push, asking for a manual retry — a
+commit made inside the hook can't retroactively join the push already in
+flight.
+_Avoid_: git hook, release hook
+
 ## Subcommands
 
 **scan**: produces a scan report from staged changes.
 **draft**: turns a scan report (plus repo context) into a draft document via an AI backend.
 **render**: turns a draft document into a final commit message, or (with `--changelog-only`) just the Keep a Changelog body fragment.
+**bump**: computes this project's next CalVer version, rewrites `pyproject.toml`, and commits the change.
 **git-suggest** (bare): chains scan → draft → render, printing to stdout by default; `--edit` opens `git commit -e -F -`, `--commit` runs `git commit -F -` non-interactively.
