@@ -22,9 +22,20 @@ _Avoid_: diff, patch
 
 **Draft document**:
 The structured JSON document produced by the `draft` subcommand: subject
-fields (type/scope/description) plus a changelog-entries structure. This is
-the "rigid format" intermediate representation between `scan` and `render`.
+fields (type/scope/description), a narrative, and a changelog-entries
+structure. This is the "rigid format" intermediate representation between
+`scan` and `render`.
 _Avoid_: commit JSON, message object
+
+**Narrative**:
+An optional free-text paragraph on a draft document answering *why* a
+commit exists: the problem it solves, then the intent behind its
+solution. Written in first-person, active voice, starting with the
+literal phrase "In this commit". Distinct from `description` (the
+one-line subject) and a changelog entry's `change_statement` (a single
+grounded fact about one file's change); `render` places it as the
+message's first paragraph, ahead of the changelog body.
+_Avoid_: rationale, intent, motivation
 
 **Changelog entry**:
 One structured statement within a draft document's changelog-entries,

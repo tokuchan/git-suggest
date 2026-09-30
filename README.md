@@ -11,7 +11,8 @@ drafted by shelling out to an AI CLI you already have installed.
 2. **draft** — sends the scan report plus repo context (tracked files,
    README, recent commit log) to an AI backend, and validates its
    response into a rigid JSON "draft document" (subject type/scope/
-   description, plus Keep a Changelog entries per category).
+   description, an optional narrative, plus Keep a Changelog entries per
+   category).
 3. **render** — turns a draft document into the final commit message
    (or, with `--changelog-only`, just the changelog body fragment).
 
@@ -84,6 +85,15 @@ the response comes back too long, falling back to the shortest attempt
 with a logged warning rather than failing outright. Changelog body bullets
 wrap at 72 columns with a hanging indent under the bullet's text.
 
+## Narrative
+
+`draft` also asks the AI backend for a `narrative`: a short paragraph
+starting with the literal phrase "In this commit", written in first-person
+active voice, describing the problem the commit solves and the intent
+behind its solution. `render` places it as the message's first paragraph,
+ahead of the changelog body; `--changelog-only` never includes it. Set
+`narrative_enabled = false` in the config file to stop asking for one.
+
 ## Output and logging
 
 Progress (entering/leaving scan/draft/render, git calls, the AI round trip)
@@ -118,6 +128,7 @@ subject_max_length = 72
 subject_preferred_length = 50
 subject_retry_attempts = 3
 body_wrap_width = 72
+narrative_enabled = true
 ```
 
 ## Development

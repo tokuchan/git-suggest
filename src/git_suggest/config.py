@@ -34,6 +34,7 @@ class Config(BaseModel):
     body_wrap_width: int = 72
     changelog_entry_indent: int = 4
     changelog_grounding_enabled: bool = True
+    narrative_enabled: bool = True
 
 
 def default_config_path() -> Path:

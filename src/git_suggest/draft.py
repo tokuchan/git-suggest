@@ -77,8 +77,30 @@ def parse_subject_budget(scan_report: str, config: Config) -> tuple[int, int]:
     return config.subject_max_length, config.subject_preferred_length
 
 
-def build_prompt(scan_report: str, context: str, max_len: int = 72, preferred_len: int = 50) -> str:
-    """Build the AI prompt combining instructions, repo context, and the scan report."""
+_NARRATIVE_INSTRUCTIONS = (
+    "Also write a `narrative`: a short free-text paragraph explaining why "
+    'this commit exists. It must start with the literal phrase "In this '
+    'commit", followed by a description of the problem being solved, '
+    "then a description of the intent behind the solution. Write it in "
+    'first-person, active voice (e.g. "I fixed ...", never "we fixed '
+    '..." or "this was fixed ...").\n\n'
+)
+
+
+def build_prompt(
+    scan_report: str,
+    context: str,
+    max_len: int = 72,
+    preferred_len: int = 50,
+    narrative_enabled: bool = True,
+) -> str:
+    """Build the AI prompt combining instructions, repo context, and the scan report.
+
+    `narrative_enabled` (Config's `narrative_enabled`, ADR 0020) controls
+    only whether the AI is instructed to populate `narrative` — the field
+    itself always exists on the schema, and `render` includes whatever
+    value the document ends up with regardless of this flag.
+    """
     schema = json.dumps(DraftDocument.model_json_schema())
     return (
         "You are drafting a structured commit-message document.\n"
@@ -89,6 +111,7 @@ def build_prompt(scan_report: str, context: str, max_len: int = 72, preferred_le
         "`description` as `type(scope): description`. Keep that combined "
         f"text at or under {max_len} characters (hard limit), and ideally "
         f"at or under {preferred_len} characters if you can.\n\n"
+        f"{_NARRATIVE_INSTRUCTIONS if narrative_enabled else ''}"
         "Every changelog entry's `affected_file` must be copied verbatim "
         "from a `## <path>` header under 'Staged changes' below — never "
         "from 'Project context'. Project context (tracked files, README, "
@@ -231,7 +254,7 @@ def run_draft(
     """
     context = gather_context(config, cwd=cwd)
     max_len, preferred_len = parse_subject_budget(scan_report, config)
-    prompt = build_prompt(scan_report, context, max_len, preferred_len)
+    prompt = build_prompt(scan_report, context, max_len, preferred_len, config.narrative_enabled)
     logger.info("Requesting draft document from AI backend")
     doc = parse_draft_response(runner(prompt))
     if config.changelog_grounding_enabled:

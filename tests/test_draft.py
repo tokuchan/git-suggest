@@ -156,6 +156,32 @@ def test_build_prompt_includes_file_grounding_instructions() -> None:
     assert "background only" in prompt
 
 
+def test_build_prompt_includes_narrative_instructions_by_default() -> None:
+    """build_prompt asks for a first-person 'In this commit' narrative by default."""
+    prompt = build_prompt("## file.py\n+x", "context")
+    assert "In this commit" in prompt
+    assert "first-person" in prompt
+
+
+def test_build_prompt_omits_narrative_instructions_when_disabled() -> None:
+    """narrative_enabled=False (ADR 0020) drops the narrative instruction entirely."""
+    prompt = build_prompt("## file.py\n+x", "context", narrative_enabled=False)
+    assert "In this commit" not in prompt
+
+
+def test_run_draft_passes_config_narrative_enabled_to_prompt(repo: Path) -> None:
+    """run_draft threads config.narrative_enabled into the built prompt."""
+    captured_prompts = []
+
+    def fake_runner(prompt: str) -> str:
+        captured_prompts.append(prompt)
+        return _draft_json()
+
+    config = Config(narrative_enabled=False)
+    run_draft("## src/app.py\n+line two", fake_runner, config, cwd=repo)
+    assert "In this commit" not in captured_prompts[0]
+
+
 def test_build_length_retry_prompt_reports_actual_and_target_lengths() -> None:
     """The retry prompt states the current header, its length, and both budgets."""
     doc = DraftDocument(type=CommitType.FEAT, scope="cli", description="a very long description")

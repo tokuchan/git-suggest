@@ -50,6 +50,11 @@ def test_default_changelog_grounding_enabled() -> None:
     assert Config().changelog_grounding_enabled is True
 
 
+def test_default_narrative_enabled() -> None:
+    """draft's narrative instruction defaults on, per ADR 0020."""
+    assert Config().narrative_enabled is True
+
+
 # Only fields with simple, independently-generatable values are exercised here;
 # backend_commands is a dict and covered separately if needed.
 _OVERRIDABLE_FIELDS = st.fixed_dictionaries(

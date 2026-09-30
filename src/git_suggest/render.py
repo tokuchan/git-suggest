@@ -1,11 +1,12 @@
 """Render a DraftDocument into a conventional-commit message (ADR 0006 render mode).
 
-Small functions compose: header, one line per changelog entry, one section
-per non-empty category, and the full message or changelog-only fragment.
-Each changelog entry's statement wraps at a configurable column width
-with a fixed indent under its own bullet label line (ADR 0016); a
-reference prefix (-r/-b, ADR 0013) is stitched onto the header here,
-never carried on the draft document itself.
+Small functions compose: header, an optional narrative paragraph
+(ADR 0020), one line per changelog entry, one section per non-empty
+category, and the full message or changelog-only fragment. Each
+changelog entry's statement wraps at a configurable column width with a
+fixed indent under its own bullet label line (ADR 0016); a reference
+prefix (-r/-b, ADR 0013) is stitched onto the header here, never carried
+on the draft document itself.
 """
 
 from __future__ import annotations
@@ -93,19 +94,28 @@ def format_changelog_body(changelog: ChangelogSections, width: int, indent: int 
 def render_commit_message(
     doc: DraftDocument, reference: str | None = None, width: int = 72, indent: int = 4
 ) -> str:
-    """Render the full conventional-commit message: header + changelog body.
+    """Render the full conventional-commit message: header + narrative + changelog body.
 
     `reference` (from -r/-b) is prepended to the header only, never to the
     body. `width` sets the body-text wrap column and `indent` the fixed
-    per-entry indent under each bullet label (ADR 0016).
+    per-entry indent under each bullet label (ADR 0016). A non-empty
+    `doc.narrative` renders as the message's first paragraph, wrapped at
+    `width` with no extra indent, ahead of the changelog body (ADR 0020);
+    it is rendered whenever present, regardless of the `narrative_enabled`
+    config flag, which only controls whether `draft` asked for one.
     """
     logger.info("Rendering commit message")
     header = apply_reference_prefix(format_header(doc), reference)
+    parts = [header]
+    if doc.narrative:
+        parts.append(wrap_body_text(doc.narrative, width))
     body = format_changelog_body(doc.changelog, width, indent)
-    return f"{header}\n\n{body}" if body else header
+    if body:
+        parts.append(body)
+    return "\n\n".join(parts)
 
 
 def render_changelog_only(doc: DraftDocument, width: int = 72, indent: int = 4) -> str:
-    """Render just the Keep a Changelog body fragment, without the commit header."""
+    """Render just the Keep a Changelog body fragment — never the header or narrative."""
     logger.info("Rendering changelog-only body")
     return format_changelog_body(doc.changelog, width, indent)

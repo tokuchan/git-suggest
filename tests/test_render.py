@@ -70,6 +70,52 @@ def test_render_commit_message_with_no_changelog_entries_is_header_only() -> Non
     assert render_commit_message(doc) == "feat: add render subcommand"
 
 
+def test_render_commit_message_includes_narrative_as_first_paragraph() -> None:
+    """A non-empty narrative renders between the header and the changelog body."""
+    doc = _doc(scope="cli", narrative="In this commit I added the render subcommand.")
+    expected = (
+        "feat(cli): add render subcommand\n"
+        "\n"
+        "In this commit I added the render subcommand.\n"
+        "\n"
+        "### Added\n"
+        "- **src/git_suggest/render.py**:\n"
+        "    Add the render subcommand."
+    )
+    assert render_commit_message(doc) == expected
+
+
+def test_render_commit_message_omits_narrative_paragraph_when_empty() -> None:
+    """The default empty narrative adds no extra paragraph or blank line."""
+    doc = _doc(scope="cli")
+    assert "In this commit" not in render_commit_message(doc)
+
+
+def test_render_commit_message_narrative_only_no_changelog() -> None:
+    """A narrative with no changelog entries renders as header + narrative, no trailing body."""
+    doc = _doc(changelog=ChangelogSections(), narrative="In this commit I did nothing yet.")
+    expected = "feat: add render subcommand\n\nIn this commit I did nothing yet."
+    assert render_commit_message(doc) == expected
+
+
+def test_render_changelog_only_omits_narrative() -> None:
+    """--changelog-only never includes the narrative paragraph, even when present."""
+    doc = _doc(scope="cli", narrative="In this commit I added the render subcommand.")
+    assert "In this commit" not in render_changelog_only(doc)
+
+
+def test_render_commit_message_wraps_long_narrative_at_width() -> None:
+    """A long narrative wraps at the given width, with no indent on any line."""
+    long_narrative = "In this commit " + ("word " * 20).strip()
+    doc = _doc(changelog=ChangelogSections(), narrative=long_narrative)
+    message = render_commit_message(doc, width=20)
+    narrative_block = message.split("\n\n", 1)[1]
+    lines = narrative_block.splitlines()
+    assert len(lines) > 1
+    assert all(len(line) <= 20 for line in lines)
+    assert all(not line.startswith(" ") for line in lines)
+
+
 def test_render_changelog_only_omits_header() -> None:
     """--changelog-only output has no conventional-commit header line."""
     doc = _doc(scope="cli")

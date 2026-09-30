@@ -36,6 +36,12 @@ def test_draft_document_round_trips_through_json() -> None:
     assert restored == doc
 
 
+def test_draft_document_narrative_defaults_to_empty_string() -> None:
+    """A DraftDocument constructed without a narrative gets "" (ADR 0020), not required."""
+    doc = DraftDocument(type=CommitType.FIX, description="fix bug")
+    assert doc.narrative == ""
+
+
 def test_sections_of_covers_all_categories_in_order() -> None:
     """sections_of yields exactly the six categories, in canonical order."""
     names = [name for name, _ in sections_of(ChangelogSections())]

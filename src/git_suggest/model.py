@@ -68,6 +68,7 @@ class DraftDocument(BaseModel):
     type: CommitType
     scope: str | None = None
     description: str
+    narrative: str = ""
     changelog: ChangelogSections = ChangelogSections()
 
 
