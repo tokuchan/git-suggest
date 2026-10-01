@@ -160,6 +160,41 @@ passed straight through to `git diff`, producing one flattened report
 for the whole range.
 _Avoid_: commit scan, historical scan
 
+**Decision backend**:
+The pluggable interface `stage-related` uses for fast, probability-scored
+yes/no-style judgments: a state (context text) plus a flat schema of
+typed questions (`choice`, `score`, or `noul`) in, typed answers with
+calibrated probabilities out, in one forward pass with no generated
+prose. Distinct from an *AI backend* (which drafts prose via a CLI
+shell-out). Two implementations: Laya, called in-process by default
+(bundled as an optional extra), or an HTTP client pointing at any
+Jev-compatible server (e.g. a self-hosted Nimble or `laya-serve`
+deployment).
+_Avoid_: decision model, classifier
+
+**Staging intent**:
+A one-sentence summary of what the currently-staged selection is about,
+drafted once per `stage-related` run via the existing AI backend and
+reused as fixed context for every candidate hunk's decision-backend call.
+Distinct from a *narrative*: staging intent is a single sentence,
+internal to `stage-related`, and never rendered into a commit message or
+draft document.
+_Avoid_: intent (bare), description, narrative
+
+**Candidate hunk**:
+An unstaged hunk (or git-split sub-hunk) in an already-tracked file, or a
+whole untracked file, that `stage-related` considers for staging
+alongside the current selection.
+_Avoid_: diff hunk, chunk
+
+**Calibration**:
+`stage-related`'s per-project, persisted Beta(α, β) posterior per
+probability bin, learned from your own confirm/reject history on
+borderline candidates, used to decide whether a candidate hunk's
+decision-backend probability is confident enough to auto-include,
+auto-exclude, or ask about.
+_Avoid_: threshold, confidence tuning
+
 ## Subcommands
 
 **scan**: produces a scan report from staged changes.
@@ -169,4 +204,6 @@ _Avoid_: commit scan, historical scan
 **changelog**: appends a draft document's changelog entries into the changelog file's Unreleased section.
 **release**: turns the changelog file's Unreleased section into a dated release entry and fixes up its compare links.
 **bump**: computes this project's next CalVer version, rewrites `pyproject.toml`, and commits the change.
+**stage-related**: stages every candidate hunk that belongs with the currently-staged selection, splitting multi-concern hunks via git's own algorithm.
+**isolate-leftover**: stashes (or, with `--mode=worktree`, isolates into a detached worktree) whatever's still unstaged, for testing the staged selection cleanly.
 **git-suggest** (bare): chains scan → draft → render, printing to stdout by default; `--edit` opens `git commit -e -F -`, `--commit` runs `git commit -F -` non-interactively.

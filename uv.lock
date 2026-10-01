@@ -31,7 +31,7 @@ wheels = [
 
 [[package]]
 name = "git-suggest"
-version = "26.10.0"
+version = "26.10.1"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
