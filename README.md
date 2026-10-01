@@ -4,6 +4,8 @@ Generate a suggested git commit message from your **staged** changes:
 a conventional-commit header plus a Keep a Changelog-style body,
 drafted by shelling out to an AI CLI you already have installed.
 
+See [CHANGELOG.md](CHANGELOG.md) for this project's own release history.
+
 ## How it works
 
 1. **scan** — turns `git diff --cached` into a concise report (full diffs
@@ -129,7 +131,9 @@ subject_preferred_length = 50
 subject_retry_attempts = 3
 body_wrap_width = 72
 narrative_enabled = true
-release_commit_message_template = "chore(release): bump version to {version}"
+bump_commit_message_template = "chore(release): bump version to {version}"
+changelog_commit_message_template = "docs(changelog): log {description}"
+release_commit_message_template = "docs(changelog): release {version}"
 ```
 
 ## Versioning
@@ -144,6 +148,33 @@ git push, branches, or remotes), so any project can call it directly:
 git-suggest bump                       # bump ./pyproject.toml
 git-suggest bump --project-path path/to/pyproject.toml
 ```
+
+## Changelog
+
+[CHANGELOG.md](CHANGELOG.md) follows Keep a Changelog, with an
+`## [Unreleased]` section at the top and dated release sections below it.
+Three subcommands manage it:
+
+```sh
+# Describe something that already happened (a fixup commit, a range of
+# work), instead of the currently staged diff:
+git-suggest scan-ref HEAD           # what HEAD itself changed vs. its parent
+git-suggest scan-ref HEAD~3..HEAD   # one flattened report for a whole range
+
+# Append a draft document's changelog entries into Unreleased, committing
+# the change itself:
+git-suggest scan | git-suggest draft | git-suggest changelog
+
+# When you're ready to cut a release: stamp Unreleased as a dated version,
+# fix up the footer's compare links, and commit:
+git-suggest release
+```
+
+`release` reads the current (already-bumped) version from pyproject.toml
+and prefers a matching release tag (`v<version>`) for its compare links,
+falling back to a commit SHA when no tag exists. It's deliberately
+decoupled from `bump` and the pre-push hook — run it only when you
+actually want to announce a release, not on every bumped push.
 
 ## Development
 

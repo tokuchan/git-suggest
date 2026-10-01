@@ -70,7 +70,7 @@ def commit_version_bump(
     command substitution and would otherwise get git's own noise mixed
     into that value.
     """
-    message = config.release_commit_message_template.format(version=new_version)
+    message = config.bump_commit_message_template.format(version=new_version)
     subprocess.run(["git", "add", str(pyproject_path)], cwd=cwd, check=True, capture_output=True)
     subprocess.run(["git", "commit", "-m", message], cwd=cwd, check=True, capture_output=True)
 
@@ -89,3 +89,65 @@ def bump_version(
     write_version(pyproject_path, new_version)
     commit_version_bump(pyproject_path, new_version, config, cwd=cwd)
     return new_version
+
+
+def tag_name_for_version(version: str) -> str:
+    """Return the tag name a release would use for `version` (ADR 0023): `v<version>`."""
+    return f"v{version}"
+
+
+def find_tag_for_version(version: str, cwd: Path | None = None) -> str | None:
+    """Return the release tag for `version` if one exists, else None (ADR 0023)."""
+    tag = tag_name_for_version(version)
+    result = subprocess.run(
+        ["git", "tag", "-l", tag], cwd=cwd, capture_output=True, text=True, check=True
+    )
+    return tag if result.stdout.strip() == tag else None
+
+
+def find_commit_for_version(
+    version: str, pyproject_path: Path, cwd: Path | None = None
+) -> str | None:
+    """Find the commit that introduced `version` in pyproject.toml, via a pickaxe search.
+
+    Works uniformly whether that commit was a normal `bump` commit or a
+    hand-edited one (e.g. ADR 0021's initial CalVer switchover), neither
+    of which is assumed to match any particular commit-message pattern
+    (ADR 0023). git's `-S` pickaxe matches any commit whose occurrence
+    count of that exact string changed -- both the commit that *added*
+    the version line, and (for all but the current version) a later
+    commit that *removed* it again when replaced by the next bump. Since
+    `git log`'s default order is newest-first, the introducing commit is
+    always the *oldest* (last) match, not the newest (first) one.
+    Returns None if no commit ever introduced that exact version line.
+    """
+    result = subprocess.run(
+        [
+            "git",
+            "log",
+            "--format=%H",
+            f'-Sversion = "{version}"',
+            "--",
+            str(pyproject_path),
+        ],
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    shas = [line for line in result.stdout.splitlines() if line]
+    return shas[-1] if shas else None
+
+
+def resolve_version_endpoint(
+    version: str, pyproject_path: Path, cwd: Path | None = None
+) -> str | None:
+    """Return the best compare-link endpoint for `version`: a tag, else a commit SHA, else None.
+
+    Prefers a release tag (`v<version>`) when one exists; falls back to
+    the commit that introduced the version line in pyproject.toml,
+    resolved via `find_commit_for_version` (ADR 0023).
+    """
+    return find_tag_for_version(version, cwd=cwd) or find_commit_for_version(
+        version, pyproject_path, cwd=cwd
+    )

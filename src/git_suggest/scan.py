@@ -4,7 +4,10 @@ Full diff hunks are kept for text files; binary files are listed by
 filename only. Small functions compose to build the report. A leading
 "subject-budget" line is embedded so `draft` can size the AI's subject
 line correctly without needing the reference prefix's literal text
-(ADR 0014).
+(ADR 0014). The diff source defaults to staged changes (`--cached`) but
+is parameterized throughout (`diff_args`) so `scan_ref.py` (ADR 0024) can
+reuse every bit of this formatting logic against an arbitrary git
+ref/range instead.
 """
 
 from __future__ import annotations
@@ -16,6 +19,8 @@ from pathlib import Path
 from git_suggest.config import Config, get_config
 
 logger = logging.getLogger(__name__)
+
+_STAGED_DIFF_ARGS = ["--cached"]
 
 
 def run_git(*args: str, cwd: Path | None = None) -> str:
@@ -41,9 +46,9 @@ def has_staged_changes(cwd: Path | None = None) -> bool:
     return result.returncode != 0
 
 
-def staged_numstat(cwd: Path | None = None) -> str:
-    """Return raw `git diff --cached --numstat` output."""
-    return run_git("diff", "--cached", "--numstat", cwd=cwd)
+def diff_numstat(diff_args: list[str], cwd: Path | None = None) -> str:
+    """Return raw `git diff <diff_args> --numstat` output."""
+    return run_git("diff", *diff_args, "--numstat", cwd=cwd)
 
 
 def parse_numstat_line(line: str) -> tuple[str, bool]:
@@ -52,15 +57,15 @@ def parse_numstat_line(line: str) -> tuple[str, bool]:
     return path, added == "-"
 
 
-def staged_files(cwd: Path | None = None) -> list[tuple[str, bool]]:
-    """Return (path, is_binary) for every staged file, in git's reported order."""
-    lines = [line for line in staged_numstat(cwd=cwd).splitlines() if line]
+def diff_files(diff_args: list[str], cwd: Path | None = None) -> list[tuple[str, bool]]:
+    """Return (path, is_binary) for every file in the given diff, in git's reported order."""
+    lines = [line for line in diff_numstat(diff_args, cwd=cwd).splitlines() if line]
     return [parse_numstat_line(line) for line in lines]
 
 
-def file_diff(path: str, cwd: Path | None = None) -> str:
-    """Return the full staged diff for a single text file."""
-    return run_git("diff", "--cached", "--", path, cwd=cwd)
+def file_diff(diff_args: list[str], path: str, cwd: Path | None = None) -> str:
+    """Return the full diff for a single text file, under the given diff source."""
+    return run_git("diff", *diff_args, "--", path, cwd=cwd)
 
 
 def format_binary_entry(path: str) -> str:
@@ -68,17 +73,17 @@ def format_binary_entry(path: str) -> str:
     return f"## {path} (binary file, content omitted)"
 
 
-def format_text_entry(path: str, cwd: Path | None = None) -> str:
+def format_text_entry(diff_args: list[str], path: str, cwd: Path | None = None) -> str:
     """Render a text file as a report entry containing its full diff."""
-    return f"## {path}\n\n{file_diff(path, cwd=cwd)}"
+    return f"## {path}\n\n{file_diff(diff_args, path, cwd=cwd)}"
 
 
-def format_entry(path: str, is_binary: bool, cwd: Path | None = None) -> str:
-    """Render one staged file as a report entry, dispatching on binary/text."""
+def format_entry(diff_args: list[str], path: str, is_binary: bool, cwd: Path | None = None) -> str:
+    """Render one file as a report entry, dispatching on binary/text."""
     logger.debug("Formatting scan entry for %s (binary=%s)", path, is_binary)
     if is_binary:
         return format_binary_entry(path)
-    return format_text_entry(path, cwd=cwd)
+    return format_text_entry(diff_args, path, cwd=cwd)
 
 
 def current_branch(cwd: Path | None = None) -> str:
@@ -118,6 +123,27 @@ def format_subject_budget_line(max_len: int, preferred_len: int) -> str:
     return f"# subject-budget: max={max_len} preferred={preferred_len}"
 
 
+def build_report(
+    diff_args: list[str],
+    cwd: Path | None = None,
+    reference: str | None = None,
+    config: Config | None = None,
+) -> str:
+    """Build a scan report for the given diff source (`diff_args`, e.g. `["--cached"]`).
+
+    A leading subject-budget line (ADR 0014) is always included ahead of
+    the diff entries, sized down by `reference`'s length when given.
+    Shared by `scan` (staged changes) and `scan_ref.py` (ADR 0024, an
+    arbitrary git ref/range) alike.
+    """
+    files = diff_files(diff_args, cwd=cwd)
+    logger.info("Found %d file(s)", len(files))
+    entries = [format_entry(diff_args, path, is_binary, cwd=cwd) for path, is_binary in files]
+    max_len, preferred_len = subject_budget(reference, config or get_config())
+    budget_line = format_subject_budget_line(max_len, preferred_len)
+    return "\n\n".join([budget_line, *entries])
+
+
 def build_scan_report(
     cwd: Path | None = None,
     reference: str | None = None,
@@ -125,16 +151,12 @@ def build_scan_report(
 ) -> str:
     """Build the full scan report text for all currently staged changes.
 
-    A leading subject-budget line (ADR 0014) is always included ahead of
-    the diff entries, sized down by `reference`'s length when given.
+    Returns "" immediately (without ever running the fuller diff) when
+    there's nothing staged, so callers can skip the AI backend round trip
+    entirely.
     """
     logger.info("Scanning staged changes (git diff --cached)")
     if not has_staged_changes(cwd=cwd):
         logger.info("No staged changes found")
         return ""
-    files = staged_files(cwd=cwd)
-    logger.info("Found %d staged file(s)", len(files))
-    entries = [format_entry(path, is_binary, cwd=cwd) for path, is_binary in files]
-    max_len, preferred_len = subject_budget(reference, config or get_config())
-    budget_line = format_subject_budget_line(max_len, preferred_len)
-    return "\n\n".join([budget_line, *entries])
+    return build_report(_STAGED_DIFF_ARGS, cwd=cwd, reference=reference, config=config)

@@ -20,6 +20,7 @@ from rich.console import Console
 from rich.panel import Panel
 
 from git_suggest.backends import get_backend_runner
+from git_suggest.changelog import update_changelog
 from git_suggest.config import Config, get_config
 from git_suggest.draft import run_draft
 from git_suggest.logging_utils import (
@@ -29,8 +30,10 @@ from git_suggest.logging_utils import (
     verbosity_to_level,
 )
 from git_suggest.model import DraftDocument
+from git_suggest.release import stamp_release
 from git_suggest.render import render_changelog_only, render_commit_message
 from git_suggest.scan import absolute_git_dir, build_scan_report, current_branch
+from git_suggest.scan_ref import build_ref_scan_report
 from git_suggest.version import bump_version
 
 logger = logging.getLogger(__name__)
@@ -103,9 +106,15 @@ overridable there):
                                  wasn't actually staged (default: true)
   narrative_enabled              ask the AI backend for a commit narrative
                                  (default: true)
-  release_commit_message_template
+  bump_commit_message_template
                                  commit message used by `bump` (default:
                                  "chore(release): bump version to {version}")
+  changelog_commit_message_template
+                                 commit message used by `changelog` (default:
+                                 "docs(changelog): log {description}")
+  release_commit_message_template
+                                 commit message used by `release` (default:
+                                 "docs(changelog): release {version}")
 """
 
 
@@ -447,4 +456,92 @@ def bump_command(mode: str, project_path: Path) -> None:
     config = get_config()
     with log_output_context(mode):
         new_version = bump_version(project_path, config)
+    click.echo(new_version)
+
+
+@main.command("scan-ref")
+@click.argument("refspec")
+@_OUTPUT_OPTION
+@_OUTPUT_REPO_PATH_OPTION
+@_APPEND_OPTION
+@_REFERENCE_OPTION
+@_BRANCH_REFERENCE_OPTION
+@click.pass_obj
+def scan_ref_command(
+    mode: str,
+    refspec: str,
+    output_path: Path | None,
+    output_repo_path: str | None,
+    append: bool,
+    reference: str | None,
+    branch_reference: bool,
+) -> None:
+    """Print a scan report for REFSPEC (a single ref, or a range) instead of staged changes.
+
+    A bare single ref (e.g. HEAD~2) means "what that commit changed
+    relative to its parent"; a range (A..B or A...B) is passed straight
+    through to `git diff` as one flattened report (ADR 0024).
+    """
+    resolved_reference = resolve_reference(reference, branch_reference)
+    resolved_output = resolve_output_target(output_path, output_repo_path)
+    with log_output_context(mode):
+        report = build_ref_scan_report(refspec, reference=resolved_reference)
+    write_output(report, resolved_output, append)
+
+
+@main.command("changelog")
+@_INPUT_OPTION
+@click.option(
+    "--changelog-path",
+    "changelog_path",
+    type=click.Path(path_type=Path),
+    default=Path("CHANGELOG.md"),
+    show_default=True,
+    help="Path to the changelog file to update.",
+)
+@click.pass_obj
+def changelog_command(mode: str, input_path: Path | None, changelog_path: Path) -> None:
+    """Append a draft document's (stdin, or --input) entries into Unreleased.
+
+    Composes the same way as `render`: `git-suggest scan | git-suggest
+    draft | git-suggest changelog`. Commits the changelog update itself,
+    in its own dedicated commit (ADR 0022).
+    """
+    config = get_config()
+    doc = DraftDocument.model_validate_json(read_input(input_path))
+    with log_output_context(mode):
+        update_changelog(changelog_path, doc, config)
+
+
+@main.command("release")
+@click.option(
+    "--changelog-path",
+    "changelog_path",
+    type=click.Path(path_type=Path),
+    default=Path("CHANGELOG.md"),
+    show_default=True,
+    help="Path to the changelog file to stamp.",
+)
+@click.option(
+    "--project-path",
+    "project_path",
+    type=click.Path(path_type=Path),
+    default=Path("pyproject.toml"),
+    show_default=True,
+    help="Path to the pyproject.toml to read the current version from.",
+)
+@click.pass_obj
+def release_command(mode: str, changelog_path: Path, project_path: Path) -> None:
+    """Stamp the changelog's Unreleased section as a dated release (ADR 0023).
+
+    Reads the current (already-bumped) version from --project-path,
+    renames the Unreleased header into a dated version header, inserts a
+    fresh empty Unreleased above it, rewrites the footer's compare links
+    (preferring a release tag when one exists, falling back to a commit
+    SHA), and commits the change. Deliberately decoupled from `bump`: run
+    this only when you choose to.
+    """
+    config = get_config()
+    with log_output_context(mode):
+        new_version = stamp_release(changelog_path, project_path, config)
     click.echo(new_version)

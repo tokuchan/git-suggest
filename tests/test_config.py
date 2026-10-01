@@ -55,9 +55,9 @@ def test_default_narrative_enabled() -> None:
     assert Config().narrative_enabled is True
 
 
-def test_default_release_commit_message_template() -> None:
+def test_default_bump_commit_message_template() -> None:
     """bump's commit message template defaults per ADR 0021."""
-    assert Config().release_commit_message_template == "chore(release): bump version to {version}"
+    assert Config().bump_commit_message_template == "chore(release): bump version to {version}"
 
 
 # Only fields with simple, independently-generatable values are exercised here;

@@ -8,7 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from git_suggest.cli import commit_with_message, main
-from git_suggest.model import ChangelogSections, CommitType, DraftDocument
+from git_suggest.model import ChangelogEntry, ChangelogSections, CommitType, DraftDocument
 
 
 def _git(cwd: Path, *args: str) -> None:
@@ -438,3 +438,82 @@ def test_bump_command_writes_commits_and_prints_new_version(
     assert result.exit_code == 0
     assert expected in result.output
     assert f'version = "{expected}"' in (tmp_path / "pyproject.toml").read_text()
+
+
+def test_scan_ref_command_reports_a_single_commits_own_diff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git-suggest scan-ref HEAD` reports what HEAD itself changed."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    (tmp_path / "a.txt").write_text("one\n")
+    _git(tmp_path, "add", "a.txt")
+    _git(tmp_path, "commit", "-q", "-m", "initial")
+    (tmp_path / "a.txt").write_text("one\ntwo\n")
+    _git(tmp_path, "add", "a.txt")
+    _git(tmp_path, "commit", "-q", "-m", "second")
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["scan-ref", "HEAD"])
+    assert result.exit_code == 0
+    assert "a.txt" in result.output
+    assert "+two" in result.output
+
+
+def test_changelog_command_appends_entries_and_commits(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git-suggest changelog` appends a draft document's entries and commits CHANGELOG.md."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n")
+    _git(tmp_path, "add", "CHANGELOG.md")
+    _git(tmp_path, "commit", "-q", "-m", "initial")
+    monkeypatch.chdir(tmp_path)
+
+    doc = DraftDocument(
+        type=CommitType.FEAT,
+        description="add thing",
+        changelog=ChangelogSections(
+            added=[
+                ChangelogEntry(
+                    affected_file="src/x.py", project_context="x", change_statement="Added a thing."
+                )
+            ]
+        ),
+    )
+    result = CliRunner().invoke(main, ["changelog"], input=doc.model_dump_json())
+    assert result.exit_code == 0
+    text = (tmp_path / "CHANGELOG.md").read_text()
+    assert "### Added\n- **src/x.py**:\n    Added a thing." in text
+    log = subprocess.run(
+        ["git", "log", "-1", "--pretty=%s"],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert log == "docs(changelog): log add thing"
+
+
+def test_release_command_stamps_and_prints_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`git-suggest release` stamps Unreleased, commits, and prints the version."""
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "test@example.com")
+    _git(tmp_path, "config", "user.name", "Test")
+    _git(tmp_path, "remote", "add", "origin", "git@github.com:tokuchan/git-suggest.git")
+    (tmp_path / "pyproject.toml").write_text('[project]\nversion = "26.09.0"\n')
+    (tmp_path / "CHANGELOG.md").write_text("# Changelog\n\n## [Unreleased]\n")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "initial")
+    monkeypatch.chdir(tmp_path)
+
+    result = CliRunner().invoke(main, ["release"])
+    assert result.exit_code == 0
+    assert "26.09.0" in result.output
+    text = (tmp_path / "CHANGELOG.md").read_text()
+    assert "## [26.09.0] -" in text

@@ -10,11 +10,11 @@ from git_suggest.scan import (
     absolute_git_dir,
     build_scan_report,
     current_branch,
+    diff_files,
     format_binary_entry,
     format_subject_budget_line,
     has_staged_changes,
     parse_numstat_line,
-    staged_files,
     subject_budget,
 )
 
@@ -49,14 +49,14 @@ def test_staged_files_lists_modified_text_file(repo: Path) -> None:
     """A staged text-file modification is reported as non-binary."""
     (repo / "existing.txt").write_text("line one\nline two\n")
     _git(repo, "add", "existing.txt")
-    assert staged_files(cwd=repo) == [("existing.txt", False)]
+    assert diff_files(["--cached"], cwd=repo) == [("existing.txt", False)]
 
 
 def test_staged_files_lists_binary_file(repo: Path) -> None:
     """A staged binary file (containing a NUL byte) is reported as binary."""
     (repo / "blob.bin").write_bytes(b"\x00\x01\x02")
     _git(repo, "add", "blob.bin")
-    assert staged_files(cwd=repo) == [("blob.bin", True)]
+    assert diff_files(["--cached"], cwd=repo) == [("blob.bin", True)]
 
 
 def test_build_scan_report_includes_full_text_diff(repo: Path) -> None:

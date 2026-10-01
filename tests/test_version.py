@@ -10,8 +10,12 @@ from git_suggest.config import Config
 from git_suggest.version import (
     bump_version,
     compute_next_version,
+    find_commit_for_version,
+    find_tag_for_version,
     format_version,
     read_version,
+    resolve_version_endpoint,
+    tag_name_for_version,
     write_version,
 )
 
@@ -99,9 +103,9 @@ def test_bump_version_writes_and_commits(repo_with_pyproject: Path) -> None:
 
 
 def test_bump_version_uses_configured_commit_message_template(repo_with_pyproject: Path) -> None:
-    """bump_version formats config.release_commit_message_template with the new version."""
+    """bump_version formats config.bump_commit_message_template with the new version."""
     path = repo_with_pyproject / "pyproject.toml"
-    config = Config(release_commit_message_template="release: v{version}")
+    config = Config(bump_commit_message_template="release: v{version}")
     bump_version(path, config, today=date(2026, 9, 20), cwd=repo_with_pyproject)
     log = subprocess.run(
         ["git", "log", "-1", "--pretty=%s"],
@@ -111,3 +115,64 @@ def test_bump_version_uses_configured_commit_message_template(repo_with_pyprojec
         text=True,
     ).stdout.strip()
     assert log == "release: v26.09.1"
+
+
+def test_tag_name_for_version_is_v_prefixed() -> None:
+    """tag_name_for_version uses the v<version> convention (ADR 0023)."""
+    assert tag_name_for_version("26.09.0") == "v26.09.0"
+
+
+def test_find_tag_for_version_none_when_absent(repo_with_pyproject: Path) -> None:
+    """find_tag_for_version returns None when no matching tag exists."""
+    assert find_tag_for_version("26.09.0", cwd=repo_with_pyproject) is None
+
+
+def test_find_tag_for_version_found_when_present(repo_with_pyproject: Path) -> None:
+    """find_tag_for_version returns the tag name once it's been created."""
+    subprocess.run(
+        ["git", "tag", "v26.09.0"], cwd=repo_with_pyproject, check=True, capture_output=True
+    )
+    assert find_tag_for_version("26.09.0", cwd=repo_with_pyproject) == "v26.09.0"
+
+
+def test_find_commit_for_version_finds_the_introducing_commit(repo_with_pyproject: Path) -> None:
+    """find_commit_for_version resolves to the commit that introduced that version line."""
+    path = repo_with_pyproject / "pyproject.toml"
+    initial_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_with_pyproject,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    bump_version(path, Config(), today=date(2026, 9, 20), cwd=repo_with_pyproject)
+
+    assert find_commit_for_version("26.09.0", path, cwd=repo_with_pyproject) == initial_sha
+
+
+def test_find_commit_for_version_none_when_never_introduced(repo_with_pyproject: Path) -> None:
+    """find_commit_for_version returns None for a version that was never in history."""
+    path = repo_with_pyproject / "pyproject.toml"
+    assert find_commit_for_version("99.12.0", path, cwd=repo_with_pyproject) is None
+
+
+def test_resolve_version_endpoint_prefers_tag_over_commit(repo_with_pyproject: Path) -> None:
+    """resolve_version_endpoint returns the tag when one exists, not the commit SHA."""
+    path = repo_with_pyproject / "pyproject.toml"
+    subprocess.run(
+        ["git", "tag", "v26.09.0"], cwd=repo_with_pyproject, check=True, capture_output=True
+    )
+    assert resolve_version_endpoint("26.09.0", path, cwd=repo_with_pyproject) == "v26.09.0"
+
+
+def test_resolve_version_endpoint_falls_back_to_commit_sha(repo_with_pyproject: Path) -> None:
+    """resolve_version_endpoint falls back to the commit SHA when no tag exists."""
+    path = repo_with_pyproject / "pyproject.toml"
+    initial_sha = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=repo_with_pyproject,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    assert resolve_version_endpoint("26.09.0", path, cwd=repo_with_pyproject) == initial_sha

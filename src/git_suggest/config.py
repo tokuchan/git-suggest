@@ -35,7 +35,9 @@ class Config(BaseModel):
     changelog_entry_indent: int = 4
     changelog_grounding_enabled: bool = True
     narrative_enabled: bool = True
-    release_commit_message_template: str = "chore(release): bump version to {version}"
+    bump_commit_message_template: str = "chore(release): bump version to {version}"
+    changelog_commit_message_template: str = "docs(changelog): log {description}"
+    release_commit_message_template: str = "docs(changelog): release {version}"
 
 
 def default_config_path() -> Path:

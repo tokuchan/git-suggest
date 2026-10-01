@@ -120,10 +120,53 @@ commit made inside the hook can't retroactively join the push already in
 flight.
 _Avoid_: git hook, release hook
 
+**Changelog file**:
+`CHANGELOG.md`, this project's own Keep a Changelog-format release
+history, distinct from a *changelog entry* (one structured statement
+inside a draft document). Starts with an `## [Unreleased]` section,
+followed by dated *release entries*, newest first.
+_Avoid_: CHANGELOG, release notes
+
+**Unreleased section**:
+The changelog file's top section, collecting changelog entries appended
+by the `changelog` subcommand since the last release. Becomes a dated
+release entry when `release` runs, which also inserts a fresh empty one
+above it.
+_Avoid_: pending section, staging area
+
+**Release** (the act, distinct from *bump*):
+Running the `release` subcommand: turning the changelog file's
+Unreleased section into a dated release entry and fixing up its compare
+links. Deliberately not the same thing as *bumping* the CalVer version
+(which only touches `pyproject.toml` and knows nothing about the
+changelog) — a bumped push isn't automatically a release worth
+announcing, so the two stay separate, manually-invoked steps.
+_Avoid_: cut a release, publish
+
+**Compare link**:
+A reference-style link in the changelog file's footer, pointing to a
+diff between two versions (or a version and `HEAD`, for Unreleased).
+Prefers a matching release tag (`v<version>`) when one exists; falls
+back to a commit SHA resolved via a pickaxe search on `pyproject.toml`'s
+version line when it doesn't. The oldest release entry has none, having
+nothing earlier to compare against.
+_Avoid_: diff link, release link
+
+**Ref scan**:
+A scan report produced by the `scan-ref` subcommand from a git ref or
+range, rather than the staged diff. A bare single ref means "what that
+commit changed relative to its parent"; a range (`A..B` or `A...B`) is
+passed straight through to `git diff`, producing one flattened report
+for the whole range.
+_Avoid_: commit scan, historical scan
+
 ## Subcommands
 
 **scan**: produces a scan report from staged changes.
+**scan-ref**: produces a scan report from a git ref or range instead of staged changes.
 **draft**: turns a scan report (plus repo context) into a draft document via an AI backend.
 **render**: turns a draft document into a final commit message, or (with `--changelog-only`) just the Keep a Changelog body fragment.
+**changelog**: appends a draft document's changelog entries into the changelog file's Unreleased section.
+**release**: turns the changelog file's Unreleased section into a dated release entry and fixes up its compare links.
 **bump**: computes this project's next CalVer version, rewrites `pyproject.toml`, and commits the change.
 **git-suggest** (bare): chains scan → draft → render, printing to stdout by default; `--edit` opens `git commit -e -F -`, `--commit` runs `git commit -F -` non-interactively.
