@@ -7,6 +7,8 @@ This project uses [CalVer](https://calver.org/) (`YY.MM.patch`), not semver.
 
 ## [Unreleased]
 
+## [26.10.0] - 2026-10-01
+
 ### Added
 - **CHANGELOG.md**:
     Added a new CHANGELOG.md starting with an Unreleased section and an
@@ -73,3 +75,6 @@ This project uses [CalVer](https://calver.org/) (`YY.MM.patch`), not semver.
 ## [26.09.0] - 2026-09-30
 
 Initial CalVer release.
+
+[Unreleased]: https://github.com/tokuchan/git-suggest/compare/1589b331d10504f999a2306a66dbb9535500e4db...HEAD
+[26.10.0]: https://github.com/tokuchan/git-suggest/compare/d789b8966f21062ad4da879a351cfbcfcb04aea2...1589b331d10504f999a2306a66dbb9535500e4db
