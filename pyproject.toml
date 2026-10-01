@@ -1,6 +1,6 @@
 [project]
 name = "git-suggest"
-version = "26.09.0"
+version = "26.10.0"
 description = "Draft conventional-commit messages with a Keep a Changelog body from staged git changes, via an AI backend."
 readme = "README.md"
 license = "MIT"
